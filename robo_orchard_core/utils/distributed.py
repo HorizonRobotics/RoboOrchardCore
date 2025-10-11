@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -51,16 +51,13 @@ def rank_zero_only(fn):
 
 @dataclass
 class DistInfo:
-    """Represents distributed information.
-
-    Attributes:
-        world_size (int): The total number of processes in the
-            distributed group.
-        rank (int): The rank of the current process.
-    """
+    """Represents distributed information."""
 
     world_size: int
+    """The total number of processes in the distributed group."""
+
     rank: int
+    """The rank of the current process."""
 
 
 def is_dist_initialized():
@@ -98,15 +95,13 @@ def get_dist_info(
 
 @dataclass
 class DataLoaderWorkerInfo:
-    """Represents worker information in a DataLoader.
-
-    Attributes:
-        world_size (int): The total number of workers in the DataLoader.
-        rank (int): The index of the current worker.
-    """
+    """Represents worker information in a DataLoader."""
 
     world_size: int
+    """The total number of workers in the DataLoader."""
+
     rank: int
+    """The index of the current worker."""
 
 
 def get_dataloader_worker_info() -> DataLoaderWorkerInfo:

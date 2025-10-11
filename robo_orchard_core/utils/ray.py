@@ -150,10 +150,8 @@ class RayRemoteInstanceConfig(ClassConfig[T], Generic[T, ClassConfigType_co]):
 
     Template parameters:
         T: The type of the remote instance.
-        ClassConfigType_co: The type of the configuration for the class to be
-            instantiated remotely.
-
-    """
+        ClassConfigType_co: The type of the configuration for the class to be instantiated remotely.
+    """  # noqa: E501
 
     class_type: ClassType[T]
 

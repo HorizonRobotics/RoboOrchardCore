@@ -8,6 +8,8 @@ SPHINXBUILD   = sphinx-build
 SPHINXPROJ    = RoboOrchardCore
 SOURCEDIR     = .
 BUILDDIR      = ../build/docs_build
+ROBO_ORCHARD_DOCS_CURRENT_VERSION_ID ?= master
+API_ROOT      = autoapi
 
 # Put it first so that "make" without argument is like "make help".
 help:
@@ -19,8 +21,10 @@ help:
 	@mkdir -p $(BUILDDIR)
 	@PYTORCH_JIT=0 \
 	$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+	@cp -rf $(BUILDDIR)/html $(BUILDDIR)/$(ROBO_ORCHARD_DOCS_CURRENT_VERSION_ID)
 
 clean:
+	@rm -r $(API_ROOT)
 	@rm -r $(BUILDDIR)/*
 	@rm -r build
 

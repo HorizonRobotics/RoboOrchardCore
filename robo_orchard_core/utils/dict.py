@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,23 +28,26 @@ def flatten_dict(
 
     For example, given the following dictionary:
 
-    {
-        "a": 1,
-        "b": {
-            "c": 2,
-            "d": [3, 4],
+    .. code-block: text
+
+        {
+            "a": 1,
+            "b": {
+                "c": 2,
+                "d": [3, 4],
+            }
         }
-    }
 
     The flattened dictionary would be:
 
-    {
-        "a": 1,
-        "b/c": 2,
-        "b/d/index_0": 3,
-        "b/d/index_1": 4,
-    }
+    .. code-block: text
 
+        {
+            "a": 1,
+            "b/c": 2,
+            "b/d/index_0": 3,
+            "b/d/index_1": 4,
+        }
 
     Args:
         d (dict|list|tuple): The dictionary or list to flatten.

@@ -79,6 +79,8 @@ def draw_image(canvas: Canvas, image: np.ndarray, format="PNG", quality=100):
 
 
 class DomEvent(TypedDict):
+    """Dom event."""
+
     target: dict
     altKey: bool
     metaKey: bool
@@ -87,8 +89,9 @@ class DomEvent(TypedDict):
     type: str
     event: str
     buttons: int
-    # 0: no button, 1: left button, 2: right button, 4: middle button.
-    # Bitwise, can be combined.
+    """0 means no button, 1 means left button,
+    2 means right button, 4 means middle button.
+    Bitwise, can be combined."""
 
     clientX: int
     clientY: int

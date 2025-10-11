@@ -49,7 +49,6 @@ class PolicyMixin(Generic[OBSType, ACTType], metaclass=ABCMeta):
     generates an action when called, allowing for sampling from a distribution
     over actions. For deterministic policies, it directly returns the action.
 
-
     Template Args:
         OBSType: The type of the observation space.
         ACTType: The type of the action space.

@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -60,6 +60,7 @@ def so3_relative_angle(
     """Calculates the relative angle (in radians) between pairs of rotation matrices `R1` and `R2` with `angle = acos(0.5 * (Trace(R1 R2^T)-1))`.
 
     .. note::
+
         This corresponds to a geodesic distance on the 3D manifold of rotation
         matrices.
 
@@ -81,8 +82,8 @@ def so3_relative_angle(
             If `cos_angle==True`, returns the cosine of the angles.
 
     Raises:
-        ValueError if `R1` or `R2` is of incorrect shape.
-        ValueError if `R1` or `R2` has an unexpected trace.
+        ValueError: If `R1` or `R2` is of incorrect shape.
+        ValueError: If `R1` or `R2` has an unexpected trace.
     """  # noqa: E501
     R12 = torch.bmm(R1, R2.permute(0, 2, 1))
     return so3_rotation_angle(
@@ -119,8 +120,8 @@ def so3_rotation_angle(
             If `cos_angle==True`, returns the cosine of the angles.
 
     Raises:
-        ValueError if `R` is of incorrect shape.
-        ValueError if `R` has an unexpected trace.
+        ValueError: If `R` is of incorrect shape.
+        ValueError: If `R` has an unexpected trace.
     """  # noqa: E501
 
     N, dim1, dim2 = R.shape
@@ -241,8 +242,8 @@ def hat_inv(h: torch.Tensor) -> torch.Tensor:
         Batch of 3d vectors of shape `(minibatch, 3, 3)`.
 
     Raises:
-        ValueError if `h` is of incorrect shape.
-        ValueError if `h` not skew-symmetric.
+        ValueError: If `h` is of incorrect shape.
+        ValueError: If `h` not skew-symmetric.
 
     [1] https://en.wikipedia.org/wiki/Hat_operator
     """
@@ -273,17 +274,20 @@ def hat(v: torch.Tensor) -> torch.Tensor:
         v: Batch of vectors of shape `(minibatch , 3)`.
 
     Returns:
-        Batch of skew-symmetric matrices of shape
-        `(minibatch, 3 , 3)` where each matrix is of the form:
-            `[    0  -v_z   v_y ]
-             [  v_z     0  -v_x ]
-             [ -v_y   v_x     0 ]`
+        torch.Tensor: Batch of skew-symmetric matrices of shape `(minibatch, 3 , 3)`,
+            where each matrix is of the form:
+
+            .. code-block:: text
+
+                [    0  -v_z   v_y ]
+                [  v_z     0  -v_x ]
+                [ -v_y   v_x     0 ]
 
     Raises:
         ValueError if `v` is of incorrect shape.
 
     [1] https://en.wikipedia.org/wiki/Hat_operator
-    """
+    """  # noqa: E501
 
     N, dim = v.shape
     if dim != 3:

@@ -2,7 +2,7 @@
 
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 # permissions and limitations under the License.
 
 """Environment and Managers
-========================
+=====================================
 """
 
 
@@ -154,7 +154,5 @@
 # We expect and recommend users to use the
 # :py:class:`~robo_orchard_core.envs.manager_based_env.TermManagerBasedEnv`
 # as the base class for the environment, which provides modular and structured
-# interfaces for flexible and scalable development. Package
-# `robo_orchard_isaac` provides the adaptation of the
-# `Manager-based Environment` for Isaac Lab, which is an example to follow.
+# interfaces for flexible and scalable development.
 #

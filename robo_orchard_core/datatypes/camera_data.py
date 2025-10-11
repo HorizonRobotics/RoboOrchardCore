@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -54,13 +54,11 @@ __all___ = [
 class ImageMode(StrEnum):
     """Image mode describing the pixel format of the image.
 
-    We use PIL Image mode as the reference, see:
-        https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes
+    We use `PIL Image mode <https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes>`__ as the reference.
 
     We also extend the mode to support other formats that are commonly used in
     computer vision, such as BGR.
-
-    """
+    """  # noqa: E501
 
     # mode from PIL:
     BIT = "1"
@@ -92,8 +90,10 @@ class Distortion(DataClass, TensorToMixin):
     """The distortion model of the camera.
 
     If None, no distortion model is applied. The distortion model follows ROS2
-    convention,  see:
+    convention, see:
+
     - http://docs.ros.org/en/api/image_geometry/html/c++/pinhole__camera__model_8cpp.html
+
     - http://docs.ros.org/en/rolling/p/camera_calibration/doc/index.html
 
     """
@@ -333,8 +333,6 @@ class BatchImageData(DataClass):
 
     Note that sensor_data does not restrict the channel layout, it can be
     in HWC or CHW format.
-
-
     """
 
     pix_fmt: ImageMode | None = None

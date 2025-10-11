@@ -1,8 +1,9 @@
 # ruff: noqa: E501 D415 D205
+# sphinx_gallery_thumbnail_path = '_static/images/sphx_glr_install_thumb.png'
 
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -88,8 +89,6 @@ from __future__ import annotations
 from pydantic import ValidationError
 
 from robo_orchard_core.utils.config import Config
-
-# sphinx_gallery_thumbnail_path = '_static/images/sphx_glr_install_thumb.png'
 
 
 class MyConfig(Config):
@@ -285,5 +284,5 @@ os.remove("cls_cfg.json")
 # -------
 # In this document, we discussed the best practices for designing a
 # configuration framework. The Config class is one of the basic components
-# in RoboOrchard, and is widely used in many modules.  Hope this document
+# in **RoboOrchard**, and is widely used in many modules.  Hope this document
 # helps you understand the design of the Config class and how to use it.

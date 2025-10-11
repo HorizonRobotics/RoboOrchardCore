@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,9 +35,6 @@ from robo_orchard_core.utils.config import (
 )
 from robo_orchard_core.utils.hook import HookHandler
 
-CameraBaseType_co = TypeVar(
-    "CameraBaseType_co", bound="CameraBase|BatchCameraBase", covariant=True
-)
 CameraBaseCfgType_co = TypeVar(
     "CameraBaseCfgType_co", bound="CameraBaseCfg", covariant=True
 )
@@ -125,8 +122,8 @@ class CameraBase(
 
         Returns:
             BatchFrameTransform | None: The parent frame transform of
-                the camera.
-            If no parent frame transform is applied, returns None.
+                the camera. If no parent frame transform is applied,
+                returns None.
         """
         return None
 
@@ -151,17 +148,6 @@ class CameraBase(
         )
 
 
-class CameraBaseCfg(ClassConfig[CameraBaseType_co]):
-    """The base configuration for all cameras."""
-
-    class_type: ClassType_co[CameraBaseType_co]
-
-
-CameraBaseCfgType_co = TypeVar(
-    "CameraBaseCfgType_co", bound=CameraBaseCfg, covariant=True
-)
-
-
 class BatchCameraBase(
     ClassInitFromConfigMixin, Generic[CameraBaseCfgType_co], metaclass=ABCMeta
 ):
@@ -170,7 +156,6 @@ class BatchCameraBase(
     A batch of cameras is a collection of cameras that share the image shape
     and distortion model. The intrinsic matrices and poses of the cameras
     can be different.
-
     """
 
     def __init__(self, cfg: CameraBaseCfgType_co, *args, **kwargs):
@@ -275,3 +260,14 @@ class BatchCameraBase(
             sensor_data=self.sensor_data,
             image_shape=self.image_shape,
         )
+
+
+CameraBaseType_co = TypeVar(
+    "CameraBaseType_co", bound=CameraBase | BatchCameraBase, covariant=True
+)
+
+
+class CameraBaseCfg(ClassConfig[CameraBaseType_co]):
+    """The base configuration for all cameras."""
+
+    class_type: ClassType_co[CameraBaseType_co]

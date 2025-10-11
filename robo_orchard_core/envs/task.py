@@ -51,5 +51,5 @@ class TaskInfo:
     on how to perform the task, including any specific steps or
     guidelines that need to be followed.
 
-    This property  provides more specific instructions if needed.
+    This property provides more specific instructions if needed.
     """

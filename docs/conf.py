@@ -22,25 +22,27 @@ sys.path.insert(0, os.path.join(os.path.abspath(os.path.dirname(__file__))))
 import re
 from collections import OrderedDict
 
-from doc_gen import gen_index
+from doc_gen import gen_index, patch_autoapi  # type: ignore
 from pydantic import BaseModel
 from recommonmark.parser import CommonMarkParser
 from recommonmark.transform import AutoStructify
 
 import robo_orchard_core
 
+CUR_DIR = os.path.abspath(os.path.dirname(__file__))
+
 with_comment = os.environ.get("DOC_WITH_COMMENT", "0") == "1"
 # -- Project information -----------------------------------------------------
 
-project = "RoboOrchard Core"
-copyright = "2024, Horizon Robotics Developers"
+project = "RoboOrchardCore"
+copyright = "2024-2025, Horizon Robotics Developers"
 author = "Horizon Robotics Developers"
 
 # # The short X.Y version
 version = robo_orchard_core.__version__
 release = robo_orchard_core.__version__
 
-html_title = f"{project}\n{version}"
+html_title = f"{project}"
 
 # -- General configuration ---------------------------------------------------
 
@@ -53,6 +55,7 @@ needs_sphinx = "6.0"
 # ones.
 extensions = [
     "sphinx.ext.autodoc",
+    "autoapi.extension",
     "sphinx.ext.doctest",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
@@ -104,19 +107,43 @@ autodoc_default_options = {
     "autosummary": True,
 }
 
+# autoapi configuration
+autoapi_dirs = ["../robo_orchard_core"]
+autoapi_root = "autoapi"
+autoapi_keep_files = True
+autoapi_type = "python"
+autoapi_template_dir = "_templates/autoapi"
+autoapi_ignore = [
+    "*migrations*",
+    "*/setup.py",
+]
+autoapi_python_use_implicit_namespaces = True
+autoapi_options = [
+    "members",
+    # "inherited-members",
+    # Do not show inherited members because 3rdparty libs may not satisfy
+    # the sphinx doc generation. This will bring in a lot of warnings
+    # and error.
+    "undoc-members",
+    "show-inheritance",
+    "show-module-summary",
+    "imported-members",
+]
+
 if with_comment:
     extensions.append("sphinx_comments")
 
 gallery_dict = OrderedDict()
 
-gallery_dict["Get Started"] = [
-    {
-        "path": "gallery/get_started/installation",
-    },
-]
-gallery_dict["Tutorials"] = [
-    {"path": "gallery/tutorials/system_overview/"},
-]
+if os.environ.get("ROBO_ORCHARD_NO_TUTORIALS", "0") != "1":
+    gallery_dict["Get Started"] = [
+        {"path": "gallery/get_started/installation"},
+    ]
+    gallery_dict["Tutorials"] = [
+        {"path": "gallery/tutorials/system_overview/"},
+        {"path": "gallery/tutorials/datatypes/"},
+    ]
+
 
 build_gallery_dict = OrderedDict()
 examples_dirs = []
@@ -174,7 +201,10 @@ sphinx_gallery_conf = {
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path .
-exclude_patterns = ["**/nonb**.ipynb"]
+exclude_patterns = [
+    "**/nonb**.ipynb",
+    "gallery/**/GALLERY_HEADER.rst",
+]
 
 
 suppress_warnings = [
@@ -182,9 +212,37 @@ suppress_warnings = [
     # To suppress warnings that gallery ipynb files are not included in the TOC
     # This is caused by conflicting sphinx-gallery and nbsphinx extensions
     "toc.not_included",
+    # Emitted if resolving references to objects in an imported module failed.
+    "autoapi.python_import_resolution",
 ]
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
+
+html_context = {
+    "current_version_id": os.getenv(
+        "ROBO_ORCHARD_DOCS_CURRENT_VERSION_ID", "master"
+    ),
+    "versions_json_url": os.getenv(
+        "ROBO_ORCHARD_DOCS_VERSIONS_JSON",
+        "https://horizonrobotics.github.io/robot_lab/robo_orchard/core/version.json",
+    ),
+}
+
+html_sidebars = {
+    "**": [
+        "sidebar/brand.html",
+        "version_switcher.html",
+        "sidebar/search.html",
+        "sidebar/scroll-start.html",
+        "sidebar/navigation.html",
+        "sidebar/ethical-ads.html",
+        "sidebar/scroll-end.html",
+        "sidebar/variant-selector.html",
+    ],
+}
+html_css_files = [
+    "css/version_switcher.css",
+]
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
@@ -240,8 +298,20 @@ html_theme_options = {
     # "top_of_page_button": "edit",
     # "source_branch": "master",
     # "source_directory": "docs/",
-    "light_logo": "orchard_logo.png",
-    "dark_logo": "orchard_logo.png",
+    "light_logo": "logo/logo_light.png",
+    "dark_logo": "logo/logo_dark.png",
+    "footer_icons": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/HorizonRobotics/robo_orchard_core",
+            "html": """
+                <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+                </svg>
+            """,  # noqa
+            "class": "",
+        },
+    ],
 }
 if os.environ.get("DOC_ANNOUNCEMENT", None) is not None:
     html_theme_options.update(
@@ -271,14 +341,14 @@ html_static_path = ["_static"]
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "RoboOrchard Core"
+htmlhelp_basename = "RoboOrchardCore"
 
 
 # -- Options for manual page output ------------------------------------------
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "RoboOrchard Core", "Documentation", [author], 1)]
+man_pages = [(master_doc, "RoboOrchardCore", "Documentation", [author], 1)]
 
 
 # -- Options for Texinfo output ----------------------------------------------
@@ -388,6 +458,24 @@ def setup(app):
     app.add_transform(AutoStructify)
     app.add_config_value("recommonmark_config", {}, True)
     patch_autodoc(app)
+    # patch autoapi to support customize docstring
+    patch_autoapi(app)
+
     gen_index(
         jinja_template_path="index.jinja", gallery_dirs_dict=build_gallery_dict
     )
+
+    copy_files = [
+        (
+            os.path.join(CUR_DIR, "..", "README.md"),
+            os.path.join(CUR_DIR, "readme.md"),
+        ),
+    ]
+    for src, dst in copy_files:
+        assert os.path.exists(src), f"File {src} does not exist"
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        # Copy the file content
+        with open(src, "rb") as f:
+            content = f.read()
+        with open(dst, "wb") as f:
+            f.write(content)

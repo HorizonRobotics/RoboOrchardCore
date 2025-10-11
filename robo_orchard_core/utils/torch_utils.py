@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -168,28 +168,30 @@ def convert_to_tensors_and_broadcast(
 ):
     """Convert inputs to tensors and broadcast them.
 
-    Helper function to handle parsing an arbitrary number of inputs (*args)
-    which all need to have the same batch dimension.
-    The output is a list of tensors.
+    Helper function to handle parsing an arbitrary number of inputs (args)
+    which all need to have the same batch dimension. The output is a list of tensors.
 
     Args:
-        *args: an arbitrary number of inputs
-            Each of the values in `args` can be one of the following
-                - Python scalar
-                - Torch scalar
-                - Torch tensor of shape (N, K_i) or (1, K_i) where K_i are
-                  an arbitrary number of dimensions which can vary for each
-                  value in args. In this case each input is broadcast to a
-                  tensor of shape (N, K_i)
+        args: an arbitrary number of inputs. Each of the values in `args` can be one of the following
+
+            - Python scalar
+
+            - Torch scalar
+
+            - Torch tensor of shape (N, K_i) or (1, K_i) where K_i are
+              an arbitrary number of dimensions which can vary for each
+              value in args. In this case each input is broadcast to a
+              tensor of shape (N, K_i)
+
         dtype: data type to use when creating new tensors.
         device: torch device on which the tensors should be placed.
 
     Output:
-        args: A list of tensors of shape (N, K_i)
+        list(torch.Tensor): A list of tensors of shape (N, K_i)
 
     Reference:
         https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/renderer/utils.py#L314
-    """
+    """  # noqa: E501
     # Convert all inputs to tensors with a batch dimension
     args_1d = [format_tensor(c, dtype, device) for c in args]
 

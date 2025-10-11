@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,11 +34,9 @@ from robo_orchard_core.utils.config import (
     ClassInitFromConfigMixin,
 )
 
-#:
 ManagerConfigType_co = TypeVar(
     "ManagerConfigType_co", bound="ManagerBaseCfg", covariant=True
 )
-#:
 ManagerType_co = TypeVar(
     "ManagerType_co",
     bound="ManagerBase",
@@ -60,7 +58,6 @@ class ManagerBase(
     Args:
         cfg (ManagerBaseCfg): The configuration of the manager.
         env (EnvType_co): The environment that the manager is associated with.
-
     """
 
     def __init__(self, cfg: ManagerConfigType_co, env: EnvType_co):

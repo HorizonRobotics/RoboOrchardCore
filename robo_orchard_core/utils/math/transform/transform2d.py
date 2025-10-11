@@ -547,6 +547,7 @@ class Shear2D(Transform2D_M):
     shear factors (Sxy, Syx). The transformation matrix is of the form:
 
     .. code-block:: python
+
         M = [
             [1, Sxy, 0],
             [Syx, 1, 0],

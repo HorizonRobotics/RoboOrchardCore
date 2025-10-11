@@ -39,10 +39,8 @@ class EnvRolloutReturn(Generic[ActionType, StepReturnType]):
 
     Template Args:
         ActionType: The type of the actions taken in the environment.
-        StepReturnType: The type of the results returned by each step
-            of the environment.
-
-    """
+        StepReturnType: The type of the results returned by each step of the environment.
+    """  # noqa: E501
 
     init_obs: Any
     """The initial observations to start the rollout from."""
@@ -94,7 +92,6 @@ def rollout(
 
     This function is used to run the environment for a number of steps
     and return the results of each step.
-
 
     Args:
         env (EnvBase | gym.Env): The environment to roll out.

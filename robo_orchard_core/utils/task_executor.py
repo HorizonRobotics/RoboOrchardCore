@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -99,12 +99,7 @@ class OrderedTaskExecutor:
 
     In multi-processing mode, each subprocess will initialize an instance of fn during startup,
     ensuring that the instance is not recreated for every function call.
-
-    Attributes:
-        send_idx (int): The index of the next task to be sent for execution.
-        rcvd_idx (int): The index of the next result to be retrieved.
-        buf_size (int): The current size of the task buffer.
-    """  # noqa
+    """  # noqa: E501
 
     def __init__(
         self,
@@ -133,8 +128,11 @@ class OrderedTaskExecutor:
                 Action to take when the task queue is full (i.e.,
                 reaches max_queue_size). Defaults to "raise".
                 Options are:
+
                 - "raise": Raise a TaskQueueFulledError.
+
                 - "drop_last": Discard the newest task (the one being added).
+
                 - "drop_first": Discard the oldest task in the queue.
         """
         self._max_queue_size = max_queue_size
@@ -174,8 +172,8 @@ class OrderedTaskExecutor:
         """Submit a task for execution.
 
         Args:
-            *args: Positional arguments to pass to the task function.
-            **kwargs: Keyword arguments to pass to the task function.
+            args: Positional arguments to pass to the task function.
+            kwargs: Keyword arguments to pass to the task function.
 
         Raises:
             TaskQueueFulledError: If the task queue has reached its maximum
@@ -255,9 +253,12 @@ class OrderedTaskExecutor:
 
         Raises:
             DataNotReadyError:
+
                 - If the task result is not yet available and `block` is False.
+
                 - If the task does not complete within the specified `timeout`
-                when `block` is True.
+                  when `block` is True.
+
             KeyError: If the internal task buffer does not contain the expected
                 result. This is an unexpected state and might indicate an
                 internal bug.

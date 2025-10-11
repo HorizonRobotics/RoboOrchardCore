@@ -1,6 +1,6 @@
 # Project RoboOrchard
 #
-# Copyright (c) 2024 Horizon Robotics. All Rights Reserved.
+# Copyright (c) 2024-2025 Horizon Robotics. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -230,7 +230,6 @@ class EnvBase(
         This function is used to run the environment for a number of steps
         and return the results of each step.
 
-
         Args:
             max_steps (int): The maximum number of steps to roll out the
                 environment.
@@ -269,9 +268,7 @@ class EnvBase(
         )
 
 
-#:
 EnvType = TypeVar("EnvType", bound=EnvBase)
-#:
 EnvType_co = TypeVar("EnvType_co", bound=EnvBase, covariant=True)
 
 
@@ -280,7 +277,6 @@ class EnvBaseCfg(ClassConfig[EnvType_co]):
 
     Template Args:
         EnvType_co: The type of the environment class.
-
     """
 
     def __call__(self) -> EnvType_co:

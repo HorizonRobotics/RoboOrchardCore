@@ -37,8 +37,6 @@ def experimental(fn: Callable) -> Callable:
     Applying this decorator will issue a warning when the function is called,
     indicating that the function is experimental and may change in the future.
 
-
-    Example:
     .. code-block:: python
 
         from robo_orchard_core.utils.experimental import experimental
@@ -47,7 +45,6 @@ def experimental(fn: Callable) -> Callable:
         @experimental
         def my_experimental_function():
             pass
-
     """
 
     @functools.wraps(fn)

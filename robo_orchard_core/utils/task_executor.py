@@ -22,6 +22,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError,
 )
+from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
 __all__ = ["DataNotReadyError", "TaskQueueFulledError", "OrderedTaskExecutor"]
@@ -89,6 +90,11 @@ def _worker_fn(*args, **kwargs):
     if _global_fn is None:
         raise RuntimeError("Function instance not initialized in subprocess.")
     return _global_fn(*args, **kwargs)
+
+
+@dataclass
+class ExceptionFlag:
+    e: Exception
 
 
 class OrderedTaskExecutor:
@@ -226,7 +232,13 @@ class OrderedTaskExecutor:
                 self._fn, *args, **kwargs
             )
         else:
-            self._data_buffer[self._sent_idx] = self._fn(*args, **kwargs)
+            try:
+                # Execute synchronously but capture the outcome
+                result = self._fn(*args, **kwargs)
+                self._data_buffer[self._sent_idx] = result
+            except Exception as e:
+                # If it fails, store the exception object itself
+                self._data_buffer[self._sent_idx] = ExceptionFlag(e=e)
 
         self._sent_idx += 1
 
@@ -277,16 +289,24 @@ class OrderedTaskExecutor:
                 if not ret.done():
                     raise DataNotReadyError
                 else:
-                    ret = ret.result()
+                    try:
+                        ret = ret.result()
+                    except Exception as e:
+                        ret = ExceptionFlag(e=e)
             else:
                 try:
                     ret = ret.result(timeout)
                 except TimeoutError:
                     raise DataNotReadyError
+                except Exception as e:
+                    ret = ExceptionFlag(e=e)
 
         _ = self._data_buffer.pop(fetch_idx)
 
         self._rcvd_idx += 1
+
+        if isinstance(ret, ExceptionFlag):
+            raise ret.e
 
         return ret
 

@@ -34,6 +34,13 @@ def delayed_task(x):
     return x * 2
 
 
+def failing_task(x: int) -> int:
+    """A task that raises an exception for even numbers."""
+    if x % 2 == 0:
+        raise ValueError(f"Task failed for input {x}")
+    return x * 2
+
+
 def test_executor_single_thread():
     """Test single-threaded task execution."""
 
@@ -157,6 +164,37 @@ def test_drop_last():
         executor.put(data_i)
     for data_i in data[:5]:
         assert executor.get(block=True) == dummy_task(data_i)
+
+
+@pytest.mark.parametrize("num_workers", [0, 2])
+def test_exception_handling(num_workers: int):
+    """Tests that exceptions are propagated and the queue still advances."""
+    # Best tested with a concurrent executor to see the effect clearly
+    executor = OrderedTaskExecutor(fn=failing_task, num_workers=num_workers)
+    inputs = [1, 2, 3, 4, 5]  # Tasks 2 and 4 will fail
+    for i in inputs:
+        executor.put(i)
+
+    # Get result for 1 (succeeds)
+    assert executor.get(block=True, timeout=5) == 2
+
+    # Get result for 2 (fails)
+    with pytest.raises(ValueError, match="Task failed for input 2"):
+        executor.get(block=True, timeout=5)
+
+    # CRITICAL: Check if queue advanced. Get result for 3 (succeeds)
+    assert executor.get(block=True, timeout=5) == 6
+
+    # Get result for 4 (fails)
+    with pytest.raises(ValueError, match="Task failed for input 4"):
+        executor.get(block=True, timeout=5)
+
+    # Get result for 5 (succeeds)
+    assert executor.get(block=True, timeout=5) == 10
+
+    assert executor.send_idx == 5
+    assert executor.rcvd_idx == 5
+    assert executor.buf_size == 0
 
 
 if __name__ == "__main__":

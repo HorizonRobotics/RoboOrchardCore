@@ -34,9 +34,14 @@ def wrap_log_fmt_with_rank(format: str) -> str:
 
     if "%rank" in format:
         dist_info = get_dist_info()
-        format = format.replace(
-            "%rank", "Rank[{}/{}]".format(dist_info.rank, dist_info.world_size)
-        )
+        if dist_info.world_size > 1:
+            format = format.replace(
+                "%rank",
+                "Rank[{}/{}]".format(dist_info.rank, dist_info.world_size),
+            )
+        else:
+            # remove %rank if not in distributed mode
+            format = format.replace("%rank ", "")
     return format
 
 
@@ -53,6 +58,9 @@ class LoggerManager(_Singleton):
     This class is a singleton class that manages the logger. It provides
     methods to get the logger and its child logger. You can use the logger
     manager to handle all loggers in the project.
+
+    Note that this class will configure the root logger when it is
+    instantiated for the first time!
 
     Example:
 
@@ -78,12 +86,17 @@ class LoggerManager(_Singleton):
         format: str = DEFAULT_LOG_FORMAT,
         level: int = logging.INFO,
         handlers: Optional[list[logging.Handler]] = None,
+        **kwargs,
     ):
+        format = wrap_log_fmt_with_rank(format)
+        logging.basicConfig(
+            format=format, level=level, handlers=handlers, **kwargs
+        )
         self._logger = logging.getLogger("LoggerManager")
-        self._logger.propagate = False
         self._logger.setLevel(level)
-        self._format = wrap_log_fmt_with_rank(format)
+        self._format = format
         self._level = level
+
         if handlers is None:
             handlers = [
                 logging.StreamHandler(sys.stdout),

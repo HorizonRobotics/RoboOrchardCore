@@ -629,8 +629,16 @@ class ClassConfig(Config, Generic[T_co]):
             T: An instance of the class type.
 
         """
-        cfg = self.replace(**kwargs)
-        return self.class_type(cfg, *args)  # type: ignore
+        to_replace_kwargs = {}
+        bypass_kwargs = {}
+        for k, v in kwargs.items():
+            if k in self.model_fields and k != "class_type":
+                to_replace_kwargs[k] = v
+            else:
+                bypass_kwargs[k] = v
+
+        cfg = self.replace(**to_replace_kwargs)
+        return self.class_type(cfg, *args, **bypass_kwargs)  # type: ignore
 
 
 class CallableConfig(Config, Generic[T_co]):

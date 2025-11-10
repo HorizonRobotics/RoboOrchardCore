@@ -17,7 +17,6 @@
 """The logging module."""
 
 import logging
-import sys
 
 from typing_extensions import Dict, Optional, Self
 
@@ -45,22 +44,30 @@ def wrap_log_fmt_with_rank(format: str) -> str:
     return format
 
 
-class _Singleton:
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-        return cls._instance
+def singleton(cls):
+    """A singleton decorator for a class."""
+    instances = {}
+
+    def get_instance(*args, **kwargs):
+        if cls not in instances:
+            instances[cls] = cls(*args, **kwargs)
+        return instances[cls]
+
+    return get_instance
 
 
-class LoggerManager(_Singleton):
+@singleton
+class LoggerManager:
     """A logger manager that manages the logger.
 
     This class is a singleton class that manages the logger. It provides
     methods to get the logger and its child logger. You can use the logger
     manager to handle all loggers in the project.
 
-    Note that this class will configure the root logger when it is
-    instantiated for the first time!
+    Note that this class is a singleton class, so if you create multiple
+    instances of this class, only the first instance will be used! Passing
+    different arguments to the constructor will have no effect after the
+    first instantiation.
 
     Example:
 
@@ -89,9 +96,6 @@ class LoggerManager(_Singleton):
         **kwargs,
     ):
         format = wrap_log_fmt_with_rank(format)
-        logging.basicConfig(
-            format=format, level=level, handlers=handlers, **kwargs
-        )
         self._logger = logging.getLogger("LoggerManager")
         self._logger.setLevel(level)
         self._format = format
@@ -99,16 +103,20 @@ class LoggerManager(_Singleton):
 
         if handlers is None:
             handlers = [
-                logging.StreamHandler(sys.stdout),
+                logging.StreamHandler(),
             ]
         self.set_handlers(handlers)
+        self.set_format(format)
         self._child_loggers: Dict[str, logging.Logger] = {}
 
     def get_logger(self) -> logging.Logger:
         """Get the global logger."""
         return self._logger
 
-    def get_child(self, name: str) -> logging.Logger:
+    def get_child(
+        self,
+        name: str,
+    ) -> logging.Logger:
         """Get the child logger.
 
         Args:
@@ -118,17 +126,17 @@ class LoggerManager(_Singleton):
             logging.Logger: The child logger.
 
         """
+        if name in self._child_loggers:
+            return self._child_loggers[name]
         ret = self._logger.getChild(name)
         self._child_loggers[name] = ret
         return ret
 
-    def set_level(self, level: int, recursive: bool = False) -> Self:
+    def set_level(self, level: int) -> Self:
         """Set the level of the logger.
 
         Args:
             level (int): The level of the logger.
-            recursive (bool, optional): Whether to set the level recursively.
-                Defaults to False.
 
         Returns:
             Self: The logger manager.
@@ -138,8 +146,6 @@ class LoggerManager(_Singleton):
         self._level = level
 
         loggers_to_set = [self._logger]
-        if recursive:
-            loggers_to_set.extend(self._child_loggers.values())
 
         for logger in loggers_to_set:
             logger.setLevel(level)
@@ -148,13 +154,16 @@ class LoggerManager(_Singleton):
 
         return self
 
-    def set_format(self, format: str, recursive: bool = False) -> Self:
+    def set_format(
+        self,
+        format: str,
+    ) -> Self:
         """Set the format of the logger.
+
+        This method set the format of all handlers of the logger.
 
         Args:
             format (str): The format of the logger.
-            recursive (bool, optional): Whether to set the format recursively.
-                Defaults to False.
 
         Returns:
             Self: The logger manager.
@@ -164,8 +173,6 @@ class LoggerManager(_Singleton):
         self._format = format
 
         loggers_to_set = [self._logger]
-        if recursive:
-            loggers_to_set.extend(self._child_loggers.values())
 
         for logger in loggers_to_set:
             for handler in logger.handlers:
@@ -173,23 +180,17 @@ class LoggerManager(_Singleton):
 
         return self
 
-    def set_handlers(
-        self, handlers: list[logging.Handler], recursive: bool = False
-    ) -> Self:
+    def set_handlers(self, handlers: list[logging.Handler]) -> Self:
         """Set the handlers of the logger.
 
         Args:
             handlers (list[logging.Handler]): The handlers to set.
-            recursive (bool, optional): Whether to set the handlers
-                recursively. Defaults to False.
 
         Returns:
             Self: The logger manager.
         """
 
         loggers_to_set = [self._logger]
-        if recursive:
-            loggers_to_set.extend(self._child_loggers.values())
 
         for logger in loggers_to_set:
             logger.handlers.clear()

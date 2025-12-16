@@ -17,6 +17,7 @@ from typing import Any
 
 import ray
 import torch
+from ray.actor import ActorProxy
 from ray.util.state import get_actor as get_actor_state
 from typing_extensions import Generic, TypeVar
 
@@ -175,7 +176,7 @@ class RayRemoteInstance(Generic[T]):
     remote_cls: Any
     """The Ray remote class."""
 
-    _remote: Any
+    _remote: ActorProxy[T]
     """The Ray remote actor instance."""
 
     def __init__(self, cfg: RayRemoteInstanceConfig, **kwargs):
@@ -192,13 +193,31 @@ class RayRemoteInstance(Generic[T]):
         self.remote_cls = remote_cls
 
         remote = remote_cls.remote(self.cfg.instance_config, **kwargs)  # type: ignore
+        self._remote: ActorProxy[T] = remote
+        self._remote_checked = False
+
+    @property
+    def remote(self) -> ActorProxy[T]:
+        """Get the Ray remote actor instance.
+
+        Raises:
+            RayActorNotAliveError: If the Ray actor is not alive.
+        """
+
+        if self._remote_checked:
+            return self._remote
+
         ray_error_info = {}
         if not is_ray_actor_alive(
-            remote,
+            self._remote,
             timeout=self.cfg.check_init_timeout,
             error_info=ray_error_info,
         ):
-            remote = None
+            try:
+                ray.kill(self._remote)
+                self._remote = None  # type: ignore
+            except Exception:
+                pass
             raise RayActorNotAliveError(
                 f"Ray actor failed to be alive within "
                 f"{self.cfg.check_init_timeout} seconds. "
@@ -207,13 +226,5 @@ class RayRemoteInstance(Generic[T]):
                 "enough resources "
                 f"are available: {ray.available_resources()}"
             )
-        self._remote = remote
-
-    @property
-    def remote(self) -> Any:
-        """Get the Ray remote actor instance.
-
-        Raises:
-            RayActorNotAliveError: If the Ray actor is not alive.
-        """
+        self._remote_checked = True
         return self._remote

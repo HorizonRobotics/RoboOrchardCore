@@ -20,7 +20,6 @@ import concurrent.futures
 from typing import Any, Generic
 
 import gymnasium as gym
-import ray
 
 from robo_orchard_core.policy.base import (
     PolicyConfig,
@@ -73,21 +72,17 @@ class RemotePolicy(RayRemoteInstance[PolicyMixin], PolicyMixin):
             action_space=action_space,  # type: ignore
         )
 
-    @property
-    def is_deterministic(self) -> bool:
-        return ray.get(self._remote.is_deterministic.remote())
-
     def act(self, *args, **kwargs) -> Any:
         return self.async_act(*args, **kwargs).result()
 
     def async_act(self, *args, **kwargs) -> concurrent.futures.Future:
-        return self._remote.act.remote(*args, **kwargs).future()
+        return self.remote.act.remote(*args, **kwargs).future()
 
     def reset(self, *args, **kwargs) -> Any:
         return self.async_reset(*args, **kwargs).result()
 
     def async_reset(self, *args, **kwargs) -> concurrent.futures.Future:
-        return self._remote.reset.remote(*args, **kwargs).future()
+        return self.remote.reset.remote(*args, **kwargs).future()
 
 
 class RemotePolicyConfig(

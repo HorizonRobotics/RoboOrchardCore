@@ -70,24 +70,24 @@ class RemoteEnv(RayRemoteInstance[EnvBase], EnvBase):
     @property
     def unwrapped_env(self):
         """For ray env, return the remote env instance."""
-        return self._remote
+        return ray.get(self.remote.getattr.remote("unwrapped_env"))
 
     def async_step(
         self, *args, **kwargs
     ) -> concurrent.futures.Future[EnvStepReturn]:
         """Asynchronously step the environment."""
-        return self._remote.step.remote(*args, **kwargs).future()
+        return self.remote.step.remote(*args, **kwargs).future()
 
     def step(self, *args, **kwargs) -> EnvStepReturn:
-        return ray.get(self._remote.step.remote(*args, **kwargs))
+        return ray.get(self.remote.step.remote(*args, **kwargs))
 
     def reset(self, *args, **kwargs) -> tuple[Any, dict]:
-        return ray.get(self._remote.reset.remote(*args, **kwargs))
+        return ray.get(self.remote.reset.remote(*args, **kwargs))
 
     def async_reset(
         self, *args, **kwargs
     ) -> concurrent.futures.Future[tuple[Any, dict]]:
-        return self._remote.reset.remote(*args, **kwargs).future()
+        return self.remote.reset.remote(*args, **kwargs).future()
 
     def rollout(
         self,
@@ -118,7 +118,7 @@ class RemoteEnv(RayRemoteInstance[EnvBase], EnvBase):
     ) -> concurrent.futures.Future[EnvRolloutReturn]:
         """Asynchronous version of `rollout`."""
 
-        return self._remote.rollout.remote(
+        return self.remote.rollout.remote(
             max_steps=max_steps,
             init_obs=init_obs,
             policy=policy,
@@ -130,23 +130,23 @@ class RemoteEnv(RayRemoteInstance[EnvBase], EnvBase):
     def close(self):
         if hasattr(self, "_remote") and self._remote is not None:
             try:
-                ray.get(self._remote.close.remote())
-                ray.kill(self._remote)
+                ray.get(self.remote.close.remote())
+                ray.kill(self.remote)
             except Exception:
                 pass
             del self._remote
 
     @property
     def num_envs(self) -> int:
-        return ray.get(self._remote.num_envs.remote())
+        return ray.get(self.remote.getattr.remote("num_envs"))
 
     @property
     def action_space(self) -> Any:
-        return ray.get(self._remote.action_space.remote())
+        return ray.get(self.remote.getattr.remote("action_space"))
 
     @property
     def observation_space(self) -> Any:
-        return ray.get(self._remote.observation_space.remote())
+        return ray.get(self.remote.getattr.remote("observation_space"))
 
 
 class RemoteEnvCfg(

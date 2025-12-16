@@ -267,6 +267,10 @@ class EnvBase(
             keep_last_results=keep_last_results,
         )
 
+    def getattr(self, attr: str):
+        """Wrapper for getting attributes for ray remote envs."""
+        return getattr(self, attr)
+
 
 EnvType = TypeVar("EnvType", bound=EnvBase)
 EnvType_co = TypeVar("EnvType_co", bound=EnvBase, covariant=True)

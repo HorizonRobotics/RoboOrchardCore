@@ -19,6 +19,7 @@ from abc import ABCMeta, abstractmethod
 from typing import TYPE_CHECKING, Any, Generic
 
 import gymnasium as gym
+import torch
 from typing_extensions import Self, TypeVar
 
 from robo_orchard_core.utils.config import ClassConfig, ClassType
@@ -104,6 +105,15 @@ class PolicyMixin(Generic[OBSType, ACTType], metaclass=ABCMeta):
         """A convenience method to call the policy."""
         return self.act(obs)
 
+    def to(self, device: torch.device | str):
+        """Moves the pipeline to the specified device.
+
+        Args:
+            device (torch.device | str): The target device to move
+                the model to.
+        """
+        pass
+
 
 PolicyType = TypeVar("PolicyType", bound=PolicyMixin, covariant=True)
 
@@ -126,25 +136,8 @@ class PolicyConfig(ClassConfig[PolicyType]):
     class_type: ClassType[PolicyType]
     """The type of the policy class to be created."""
 
-    def __call__(
-        self,
-        observation_space: gym.Space | None = None,
-        action_space: gym.Space | None = None,
-    ):
-        """Create an instance of the policy with the given spaces.
-
-        Args:
-            observation_space (gym.Space | None, optional): The observation
-                space of the policy. Defaults to None.
-            action_space (gym.Space | None, optional): The action space of the
-                policy. Defaults to None.
-
-        """
-        return self.class_type(
-            cfg=self,
-            observation_space=observation_space,
-            action_space=action_space,
-        )
+    def __call__(self, *args, **kwargs) -> PolicyType:
+        return self.create_instance_by_cfg(*args, **kwargs)
 
     def as_remote(
         self,

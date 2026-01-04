@@ -23,9 +23,12 @@ import torch
 
 from robo_orchard_core.datatypes.camera_data import (
     BatchCameraData,
+    BatchCameraInfo,
+    BatchFrameTransform,
     Distortion,
     ImageMode,
 )
+from robo_orchard_core.utils.math import math_utils
 from robo_orchard_core.utils.math.transform import (
     Rotate2D,
     Scale2D,
@@ -101,11 +104,76 @@ class TestBatchCameraData:
             transform=ts,
             target_hw=target_hw,
         )
+        assert data.intrinsic_matrices is not None
         gt_instrinsic_new = ts.get_matrix() @ data.intrinsic_matrices
         assert new_data.intrinsic_matrices is not None
         assert torch.allclose(
             gt_instrinsic_new, new_data.intrinsic_matrices, atol=1e-6
         )
+
+
+class TestBatchCameraInfo:
+    @pytest.fixture()
+    def dummy_camera_info(
+        self,
+    ) -> BatchCameraInfo:
+        intrinsic_matrices = torch.tensor(
+            [
+                [
+                    [100, 0, 50],
+                    [0, 100, 50],
+                    [0, 0, 1],
+                ],
+                [
+                    [200, 0, 100],
+                    [0, 200, 100],
+                    [0, 0, 1],
+                ],
+            ],
+            dtype=torch.float32,
+        )
+        return BatchCameraInfo(
+            intrinsic_matrices=intrinsic_matrices,
+            frame_id="camera",
+            pose=BatchFrameTransform(
+                parent_frame_id="world",
+                child_frame_id="camera",
+                xyz=(torch.rand(size=(2, 3), dtype=torch.float32) - 0.5) * 10,
+                quat=math_utils.normalize(
+                    torch.rand(size=(2, 4), dtype=torch.double) - 0.5,
+                    dim=-1,
+                ),
+            ),
+        )
+
+    @pytest.mark.parametrize(
+        "frame_id, device",
+        [
+            ("camera", "cpu"),
+            ("world", "cuda" if torch.cuda.is_available() else "cpu"),
+        ],
+    )
+    def test_project_unproject_consistency(
+        self, dummy_camera_info: BatchCameraInfo, frame_id: str, device: str
+    ):
+        batch_size = dummy_camera_info.intrinsic_matrices.shape[0]  # type: ignore
+        num_points = 100
+        points_3d = (
+            torch.rand(size=(batch_size, num_points, 3), device=device) - 0.5
+        ) * 10
+
+        projected_uvd = dummy_camera_info.project_points_to_image(
+            points_3d, frame_id=frame_id
+        )
+        unprojected_points_3d = dummy_camera_info.unproject_image_points(
+            projected_uvd, frame_id=frame_id
+        )
+
+        assert torch.allclose(
+            points_3d,
+            unprojected_points_3d,
+            atol=1e-5,
+        ), "Unprojected points do not match original points"
 
 
 if __name__ == "__main__":

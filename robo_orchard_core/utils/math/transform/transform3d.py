@@ -40,6 +40,7 @@ from robo_orchard_core.utils.math.math_utils import (
     _axis_angle_rotation,
     matrix_to_axis_angle,
     matrix_to_quaternion,
+    quaternion_to_matrix,
 )
 from robo_orchard_core.utils.math.transform.se3 import se3_log_map
 from robo_orchard_core.utils.torch_utils import Device, get_device, make_device
@@ -79,7 +80,7 @@ def _safe_det_3x3(t: torch.Tensor):
 
 
 class Transform3D_M:
-    """The transform3d using Matrix representation.
+    """The general transform3d using Matrix representation.
 
     A Transform3d object encapsulates a batch of N 3D transformations, and knows
     how to transform points and normal vectors. Suppose that t is a Transform3d;
@@ -263,14 +264,14 @@ class Transform3D_M:
 
     @classmethod
     def from_rot_trans(cls, R: torch.Tensor, T: torch.Tensor) -> Transform3D_M:
-        """Create a Transform3d object from rotation and translation tensors.
+        """Create a Transform3d Matrix from rotation and translation tensors.
 
         Args:
             R: A tensor of shape (N, 3, 3) representing the rotation.
             T: A tensor of shape (N, 3) representing the translation.
 
         Returns:
-            A Transform3d object with the rotation and translation.
+            A Transform3d Matrix with the rotation and translation.
         """
         if R.dim() == 2:
             R = R[None]
@@ -292,6 +293,22 @@ class Transform3D_M:
         matrix[:, :3, :3] = R
         matrix[:, :3, 3] = T
         return cls(matrix=matrix)
+
+    @classmethod
+    def from_quat_trans(
+        cls, Q: torch.Tensor, T: torch.Tensor
+    ) -> Transform3D_M:
+        """Create a Transform3d Matrix from quaternion and translation tensors.
+
+        Args:
+            Q: A tensor of shape (N, 4) representing the quaternion
+                in (x, y, z, w) format.
+            T: A tensor of shape (N, 3) representing the translation.
+
+        Returns:
+            A Transform3d Matrix with the rotation and translation.
+        """
+        return cls.from_rot_trans(R=quaternion_to_matrix(Q), T=T)
 
     def __len__(self) -> int:
         return self.get_matrix().shape[0]
@@ -321,7 +338,9 @@ class Transform3D_M:
         """Return a new Transform3D_M representing the composition of self with the given other transforms, which will be stored as an internal list.
 
         The new transform will apply current transform first, and then the others
-        in the order they are given.
+        in the order they are given. In matrix form:
+
+        A.compose(B, C).matrix == C.matrix @ B.matrix @ A.matrix
 
         Args:
             *others: Any number of Transform3D_M objects
@@ -341,6 +360,16 @@ class Transform3D_M:
     def __matmul__(self, other: Transform3D_M) -> Transform3D_M:
         """Overload the @ operator to compose two Transform3D_M objects.
 
+        Different from the compose() method, this method follows the
+        mathematical convention of matrix multiplication order. The
+        following should be the same:
+
+        .. code-block:: python
+
+            t3 = t2 @ t1
+            t3 = t1.compose(t2)
+            t3 = Transform3D_M(t2.get_matrix() @ t1.get_matrix())
+
         Args:
             other: Another Transform3D_M object to compose with self.
 
@@ -352,7 +381,7 @@ class Transform3D_M:
             msg = "Only possible to compose Transform3D_M objects; got %s"
             raise ValueError(msg % type(other))
 
-        return self.compose(other)
+        return other.compose(self)
 
     def get_matrix(self) -> torch.Tensor:
         """Returns a 4x4 matrix corresponding to each transform in the batch.
@@ -541,7 +570,7 @@ class Transform3D_M:
         return out
 
     def transform_points(
-        self, points, eps: Optional[float] = None
+        self, points: torch.Tensor, eps: Optional[float] = None
     ) -> torch.Tensor:
         """Use this transform to transform a set of 3D points.
 
@@ -562,37 +591,7 @@ class Transform3D_M:
             on the dimensions of the transform
         """  # noqa: E501
 
-        old_shape = points.shape
-        old_dim = points.dim()
-
-        # points_batch = points.clone()
-        points_batch = points
-
-        if points_batch.dim() == 2:
-            points_batch = points_batch[None]  # (P, 3) -> (1, P, 3)
-        if points_batch.dim() != 3:
-            msg = "Expected points to have dim = 2 or dim = 3: got shape %r"
-            raise ValueError(msg % repr(old_shape))
-
-        N, P, _3 = points_batch.shape
-        ones = torch.ones(N, P, 1, dtype=points.dtype, device=points.device)
-        points_batch = torch.cat([points_batch, ones], dim=2)
-
-        # transform composed matrix and then apply
-        composed_matrix = self.get_matrix().transpose(-1, -2)
-        points_out = _broadcast_bmm(points_batch, composed_matrix)
-        denom = points_out[..., 3:]  # denominator
-        if eps is not None:
-            denom_sign = denom.sign() + (denom == 0.0).type_as(denom)
-            denom = denom_sign * torch.clamp(denom.abs(), eps)
-        points_out = points_out[..., :3] / denom
-
-        # When transform is (1, 4, 4) and points is (P, 3) return
-        # points_out of shape (P, 3)
-        if points_out.shape[0] == 1 and old_dim == 2:
-            points_out = points_out.reshape(old_shape)
-
-        return points_out
+        return transform_points_3d(points, self.get_matrix(), eps=eps)
 
     def transform_normals(self, normals) -> torch.Tensor:
         """Use this transform to transform a set of normal vectors.
@@ -1043,7 +1042,7 @@ def _handle_angle_input(
         return _handle_coord(x, dtype, device_)
 
 
-def _broadcast_bmm(a, b) -> torch.Tensor:
+def _broadcast_bmm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """Batch multiply two matrices and broadcast if necessary.
 
     Args:
@@ -1094,3 +1093,75 @@ def _check_valid_rotation_matrix(R, tol: float = 1e-7) -> None:
         msg = "R is not a valid rotation matrix"
         warnings.warn(msg)
     return
+
+
+def transform_points_3d(
+    points: torch.Tensor, proj_mat: torch.Tensor, eps: Optional[float] = None
+) -> torch.Tensor:
+    """Use this transform to transform a set of 3D points.
+
+    Assumes row major ordering of the input points.
+
+    Args:
+        points: Tensor of shape (P, 3) or (N, P, 3).
+        proj_mat: Tensor of shape (4, 4) or (N, 4, 4) or (3, 4)
+            or (N, 3, 4). If proj_mat has shape (3, 4) or (N, 3, 4),
+            the last row [0, 0, 0, 1] is assumed.
+        eps: If eps!=None, the argument is used to clamp the
+            last coordinate before performing the final division.
+            The clamping corresponds to:
+            last_coord := (last_coord.sign() + (last_coord==0)) *
+            torch.clamp(last_coord.abs(), eps),
+            i.e. the last coordinates that are exactly 0 will
+            be clamped to +eps.
+
+    Returns:
+        points_out: points of shape (N, P, 3) or (P, 3) depending
+        on the dimensions of the transform
+    """  # noqa: E501
+
+    old_shape = points.shape
+    old_dim = points.dim()
+
+    # points_batch = points.clone()
+    points_batch = points
+
+    if points_batch.dim() == 2:
+        points_batch = points_batch[None]  # (P, 3) -> (1, P, 3)
+    if points_batch.dim() != 3:
+        msg = "Expected points to have dim = 2 or dim = 3: got shape %r"
+        raise ValueError(msg % repr(old_shape))
+
+    N, P, _3 = points_batch.shape
+    # Convert points to homogeneous coordinates
+    ones = torch.ones(N, P, 1, dtype=points.dtype, device=points.device)
+    points_batch = torch.cat([points_batch, ones], dim=2)
+
+    # transform composed matrix and then apply
+    composed_matrix = proj_mat.transpose(-1, -2)
+    points_out = _broadcast_bmm(points_batch, composed_matrix)
+
+    if points_out.shape[-1] not in (3, 4):
+        raise ValueError(
+            "The last dimension of transformed points should be 3 or 4; "
+            f"got {points_out.shape[-1]}"
+        )
+    # for transformation with only rotation and translation,
+    # the last coordinate will always be 1, so no division is needed.
+    # However, we keep the division here to support more general
+    # transformations.
+    # when the matrix is 3x4, we assume the last row is [0, 0, 0, 1] in
+    # 4x4 matrix, so no division is needed.
+    if points_out.shape[-1] == 4:
+        denom = points_out[..., 3:]  # denominator
+        if eps is not None:
+            denom_sign = denom.sign() + (denom == 0.0).type_as(denom)
+            denom = denom_sign * torch.clamp(denom.abs(), eps)
+        points_out = points_out[..., :3] / denom
+
+    # When transform is (1, 4, 4) and points is (P, 3) return
+    # points_out of shape (P, 3)
+    if points_out.shape[0] == 1 and old_dim == 2:
+        points_out = points_out.reshape(old_shape)
+
+    return points_out

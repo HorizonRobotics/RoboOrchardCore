@@ -37,7 +37,11 @@ from robo_orchard_core.utils.image import (
     get_image_shape,
     guess_channel_layout,
 )
-from robo_orchard_core.utils.math.transform import Transform2D_M
+from robo_orchard_core.utils.math.camera import (
+    project_points_to_image,
+    unproject_image_points,
+)
+from robo_orchard_core.utils.math.transform import Transform2D_M, Transform3D_M
 from robo_orchard_core.utils.torch_utils import Device
 
 __all___ = [
@@ -170,7 +174,7 @@ class BatchCameraInfo(DataClass, TensorToMixin):
     pose: BatchFrameTransform | None = None
     """Frame transform of the camera sensor.
 
-    Usually the frame transform are camera framew.r.t. the world frame,
+    Usually the frame transform are camera frame w.r.t. the world frame,
     or known as the cam2World transformation, they are the same.
 
     The inverse of the pose transformation is the extrinsic matrix
@@ -179,11 +183,30 @@ class BatchCameraInfo(DataClass, TensorToMixin):
 
     @property
     def extrinsics(self) -> TorchTensor | None:
-        """Get the extrinsic matrices of the cameras.
+        """Get the extrinsic matrix of the cameras.
+
+        Pose6D describes the transformation from the camera frame to the
+        world frame, while the extrinsic matrix describes the transformation
+        from the world frame to the camera frame, which is the inverse of
+        the pose transformation (cam w.r.t world).
+
+        The extrinsic matrix is a Bx4x4 matrix:
+
+        .. code-block:: text
+
+            [[[R, t],
+              [0, 1]],
+              ...
+             [[R, t],
+              [0, 1]]]
+            ]
+
+        Where R is a 3x3 rotation matrix and t is a 3x1 translation vector.
 
         Returns:
             TorchTensor | None: The extrinsic matrices of the cameras.
             If no pose is provided, returns None.
+
         """
         if self.pose is not None:
             return self.pose.inverse().as_Transform3D_M().get_matrix()
@@ -198,6 +221,14 @@ class BatchCameraInfo(DataClass, TensorToMixin):
                     "batch size of pose. "
                     f"Expected {self.pose.batch_size}, got "
                     f"{self.intrinsic_matrices.shape[0]}."
+                )
+        if self.frame_id is not None and self.pose is not None:
+            if self.frame_id != self.pose.child_frame_id:
+                raise ValueError(
+                    "The frame_id must match the child_frame_id of the "
+                    "pose. "
+                    f"Expected {self.pose.child_frame_id}, got "
+                    f"{self.frame_id}."
                 )
 
     @property
@@ -226,31 +257,6 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         if self.distortion is not None:
             return self.distortion.model
         return None
-
-    def get_extrinsic_matrix(self) -> TorchTensor:
-        """Get the extrinsic matrix of the cameras.
-
-        Pose6D describes the transformation from the camera frame to the
-        world frame, while the extrinsic matrix describes the transformation
-        from the world frame to the camera frame, which is the inverse of
-        the pose transformation (cam w.r.t world).
-
-        The extrinsic matrix is a Bx4x4 matrix:
-
-        .. code-block:: text
-
-            [[[R, t],
-              [0, 1]],
-              ...
-             [[R, t],
-              [0, 1]]]
-            ]
-
-        Where R is a 3x3 rotation matrix and t is a 3x1 translation vector.
-        """
-
-        assert self.pose is not None
-        return self.pose.inverse().as_Transform3D_M().get_matrix()
 
     @classmethod
     def concat(cls, all: Sequence[Self]) -> Self:
@@ -317,6 +323,141 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             pose=pose,
         )
 
+    def project_points_to_image(
+        self, points: torch.Tensor, frame_id: str
+    ) -> torch.Tensor:
+        """Project 3D points to 2D image plane.
+
+        Args:
+            points (torch.Tensor): A tensor of shape (P, 3) or (B, P, 3)
+                representing the 3D points in the specified frame_id.
+            frame_id (str): The frame_id in which the points are expressed.
+                If the frame_id matches the camera frame_id, the points are
+                assumed to be in the camera frame, and the intrinsic matrix is
+                used directly for projection. If the frame_id matches the
+                parent_frame_id of the camera pose, the points are first
+                transformed to the camera frame using the camera pose, and
+                then projected to the image plane.
+
+        Returns:
+            torch.Tensor: A tensor of shape (B, P, 3) representing the
+                projected 2D points with depth (u, v, depth) in the image
+                plane. The depth is orthogonal distance from the camera's
+                image plane to the 3D point.
+
+        """
+        if self.distortion is not None:
+            raise NotImplementedError(
+                "Projecting points with distortion is not implemented yet."
+            )
+        frame_id_cam, frame_id_parent = self._check_frame_id_for_projection(
+            frame_id=frame_id
+        )
+        assert self.intrinsic_matrices is not None
+        trans_M = Transform3D_M()
+        if frame_id == frame_id_parent:
+            assert self.pose is not None
+            trans_M.compose(self.pose.inverse().as_Transform3D_M())
+        else:
+            assert frame_id == frame_id_cam
+        padded_intrinsic = (
+            torch.eye(4)
+            .to(self.intrinsic_matrices)
+            .expand(self.intrinsic_matrices.shape[0], 4, 4)
+            .clone()
+        )
+        padded_intrinsic[..., :3, :3] = self.intrinsic_matrices
+        trans_M.compose(Transform3D_M(matrix=padded_intrinsic))
+        return project_points_to_image(
+            points_3d=points,
+            projection_mat=trans_M.get_matrix().to(points),
+        )
+
+    def unproject_image_points(
+        self, uvd: torch.Tensor, frame_id: str
+    ) -> torch.Tensor:
+        """Unproject 2D image points with depth to 3D points in camera frame.
+
+        Args:
+            uvd (torch.Tensor): A tensor of shape (P, 3) or (B, P, 3)
+                representing the 2D points with depth (u, v, depth) in the
+                image plane. The depth is orthogonal distance from the camera's
+                image plane to the 3D point.
+            frame_id (str): The frame_id in which the points are to be
+                unprojected. Can be either the camera frame_id or the
+                parent_frame_id of the camera pose.
+
+        Returns:
+            torch.Tensor: A tensor of shape (B, P, 3) representing the
+                unprojected 3D points in the camera frame.
+
+        """
+        if self.distortion is not None:
+            raise NotImplementedError(
+                "Projecting points with distortion is not implemented yet."
+            )
+        frame_id_cam, frame_id_parent = self._check_frame_id_for_projection(
+            frame_id=frame_id
+        )
+        assert self.intrinsic_matrices is not None
+        trans_M = Transform3D_M()
+
+        padded_intrinsic = (
+            torch.eye(4)
+            .to(self.intrinsic_matrices)
+            .expand(self.intrinsic_matrices.shape[0], 4, 4)
+            .clone()
+        )
+        padded_intrinsic[..., :3, :3] = self.intrinsic_matrices
+        trans_M.compose(Transform3D_M(matrix=padded_intrinsic).inverse())
+        if frame_id == frame_id_parent:
+            assert self.pose is not None
+            trans_M.compose(self.pose.as_Transform3D_M())
+        else:
+            assert frame_id == frame_id_cam
+
+        return unproject_image_points(
+            uvd=uvd,
+            from_image_unpoj=trans_M.get_matrix().to(uvd),
+        )
+
+    def _check_frame_id_for_projection(
+        self, frame_id: str
+    ) -> tuple[str | None, str | None]:
+        if self.intrinsic_matrices is None:
+            raise ValueError(
+                "Cannot project/unproject points because "
+                "intrinsic_matrices is None."
+            )
+        frame_id_cam: str | None = self.frame_id
+        frame_id_parent: str | None = None
+        if self.pose is not None:
+            if (
+                self.frame_id is not None
+                and self.frame_id != self.pose.child_frame_id
+            ):
+                raise ValueError(
+                    "The frame_id must match the child_frame_id of the "
+                    "pose. "
+                    f"Expected {self.pose.child_frame_id}, got "
+                    f"{self.frame_id}."
+                )
+            frame_id_parent = self.pose.parent_frame_id
+        if frame_id_cam is None and frame_id_parent is None:
+            raise ValueError(
+                "Cannot transform points because "
+                "frame_id / parent_frame_id of the camera is missing. "
+                "Please provide the frame_id of the camera or the pose."
+            )
+        if frame_id not in [frame_id_cam, frame_id_parent]:
+            raise ValueError(
+                "The points frame_id must match either the camera frame_id "
+                "or the parent_frame_id of the camera pose. "
+                f"Expected {frame_id_cam} or {frame_id_parent}, got "
+                f"{frame_id}."
+            )
+        return frame_id_cam, frame_id_parent
+
 
 class BatchImageData(DataClass):
     """Data class for batched camera sensor data.
@@ -375,10 +516,6 @@ class BatchImageData(DataClass):
         padding_mode: Literal["zeros"] = "zeros",
     ) -> Self:
         """Apply a 2D transformation to the camera data.
-
-        This method applies a 2D transformation to the intrinsic matrices
-        as well to keep the projection matrix consistent with the
-        transformed sensor data.
 
         Args:
             transform (Transform2D_M): The transformation to apply.
@@ -573,8 +710,8 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         """Apply a 2D transformation to the camera data.
 
         This method applies a 2D transformation to the intrinsic matrices
-        as well to keep the projection matrix consistent with the
-        transformed sensor data.
+        as well to keep the projection matrix (world to pixel) consistent
+        with the transformed sensor data.
 
         Args:
             transform (Transform2D_M): The transformation to apply.

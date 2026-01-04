@@ -94,7 +94,16 @@ def affine_mat2non_align_corners(
     src_hw: tuple[int, int],
     dst_hw: tuple[int, int],
 ) -> TorchTensor:
-    """Convert affine matrix to non-align-corners affine matrix."""
+    """Convert affine matrix to non-align-corners affine matrix.
+
+    This method calibrates the affine matrix of transforming point
+    to pixel grid for better visualization with `cv2.warpAffine`.
+
+    `cv2.warpAffine` treats input image pixels as point, while
+    actually the pixel is a grid area. Therefore, when using
+    `cv2.warpAffine`, we need to adjust the affine matrix accordingly.
+
+    """
 
     theta = convert_grid_sample_theta(
         mat=mat,
@@ -121,13 +130,21 @@ def convert_grid_sample_theta(
 ) -> TorchTensor:
     """Convert a affine matrix to theta for grid_sample, or inverse.
 
+    The theta used in torch.nn.functional.grid_sample is the affine matrix
+    that maps the target coordinates to the source coordinates in normalized
+    coordinate system (range from -1 to 1 for both x and y), both for source
+    and target images.
+
     Args:
         mat (TorchTensor): The affine matrix, or grid sample theta.
         src_hw (tuple[int, int]): The source height and width.
         dst_hw (tuple[int, int]): The destination height and width.
         to_theta (bool): If True, convert mat to theta. If False,
             convert theta to mat.
-        align_corners (bool, optional): If True, align corners of the image.
+        align_corners (bool, optional): If True, the pixel index are aligned
+            to [-1, 1] in normalized coordinates, which considers pixel as
+            points. If False, the pixel index are aligned to
+            [-1 + 1/size, 1 - 1/size], which considers pixel as grid.
             Defaults to False.
 
     Returns:
@@ -143,7 +160,10 @@ def convert_grid_sample_theta(
 
     src_h, src_w = src_hw
     dst_h, dst_w = dst_hw
+    # left: How to convert from src coords to normalized coords
+    # right: How to convert from target coords to normalized coords
     if align_corners:
+        # map [0, size-1] to [-1, 1]
         left = torch.asarray(
             [
                 [2.0 / (src_w - 1), 0, -1],
@@ -164,6 +184,9 @@ def convert_grid_sample_theta(
         )
     else:
         # # If align_corners is False, we use the following transformation
+        # map [0, size-1] to [-1 + 1/size, 1 - 1/size], which means
+        # the pixel has size of 2/size in normalized coordinates and
+        # the center of the pixel is at -1 + (2* (i + 0.5) / size)
         left = torch.asarray(
             [
                 [(2 - 2.0 / src_w) / (src_w - 1), 0, -1 + 1.0 / src_w],
@@ -215,7 +238,8 @@ def wrapAffine(
             Defaults to "bilinear".
         padding_mode (str, optional): The padding mode to use.
             Defaults to "zeros".
-        align_corners (bool, optional): If True, align corners of the image.
+        align_corners (bool, optional): Whether to use align_corners mode
+            in grid_sample. To match cv2.warpAffine, set this to True.
             Defaults to False.
 
     """
@@ -261,12 +285,6 @@ def wrapAffine(
         size=list(src.shape[:-2]) + [target_hw[0], target_hw[1]],
         align_corners=align_corners,
     )
-    print(
-        "grid target size: ",
-        list(src.shape[:-2]) + [target_hw[0], target_hw[1]],
-    )
-    print("src.shape: ", src.shape)
-    print("grid.shape: ", grid.shape)
 
     return torch.nn.functional.grid_sample(
         input=src,

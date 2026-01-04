@@ -13,13 +13,45 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
+import numpy as np
 import pytest
 import torch
+from scipy.spatial.transform import Rotation
 
 from robo_orchard_core.utils.math import math_utils, transform3d
 
 
 class TestQuaternion:
+    def test_quaternion_consistency_scipy(self):
+        q = math_utils.normalize(torch.rand(size=(1000, 4)) - 0.5, dim=-1)
+        q = math_utils.quaternion_standardize(q)
+        M = math_utils.quaternion_to_matrix(q)
+        q_recovered = math_utils.matrix_to_quaternion(M)
+        q_recovered = math_utils.quaternion_standardize(q_recovered)
+        axis_angle = math_utils.quaternion_to_axis_angle(q)
+
+        q_scipy: np.ndarray = Rotation.from_quat(
+            q.cpu().numpy(), scalar_first=True
+        ).as_matrix()
+        q_scipy = q_scipy.astype(np.float32)
+
+        q_recovered_scipy = Rotation.from_matrix(M.cpu().numpy()).as_quat(
+            scalar_first=True
+        )
+        q_recovered_scipy = math_utils.quaternion_standardize(
+            torch.from_numpy(q_recovered_scipy)
+        ).to(torch.float32)
+
+        axis_angle_scipy = Rotation.from_quat(
+            q.cpu().numpy(), scalar_first=True
+        ).as_rotvec()
+        axis_angle_scipy = torch.from_numpy(axis_angle_scipy).to(torch.float32)
+
+        assert torch.allclose(q, q_recovered, atol=1e-5)
+        assert torch.allclose(torch.from_numpy(q_scipy), M.cpu(), atol=1e-5)
+        assert torch.allclose(q_recovered_scipy, q_recovered, atol=1e-5)
+        assert torch.allclose(axis_angle, axis_angle_scipy, atol=1e-5)
+
     @pytest.mark.parametrize(
         "device",
         [
@@ -273,9 +305,11 @@ class TestTransform3d:
         )
         p_t2 = t3d_1.compose(t3d_2, t3d_3).transform_points(p)
         p_t3 = t3d_1.compose(t3d_2).compose(t3d_3).transform_points(p)
+        p_t3_ = (t3d_3 @ t3d_2 @ t3d_1).transform_points(p)
 
         assert torch.allclose(p_t1, p_t2, atol=1e-6, rtol=1e-5)
         assert torch.allclose(p_t1, p_t3, atol=1e-6, rtol=1e-5)
+        assert torch.allclose(p_t1, p_t3_, atol=1e-6, rtol=1e-5)
 
     @pytest.mark.parametrize(
         "device",

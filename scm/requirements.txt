@@ -9,6 +9,8 @@ pytest-asyncio
 pytest-mock
 allure-pytest
 filelock
+opencv-python
+scipy>=1.15
 # doc
 sphinx
 sphinx-comments
@@ -52,3 +54,4 @@ setuptools>=77.0.3
 
 # ray
 ray[default]
+

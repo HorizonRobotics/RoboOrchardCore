@@ -30,11 +30,8 @@ from robo_orchard_core.utils.config import TorchTensor
 from robo_orchard_core.utils.math import (
     CoordConventionType,
     math_utils,
-    quaternion_to_matrix,
 )
-from robo_orchard_core.utils.math.transform.transform3d import (
-    Transform3D_M,
-)
+from robo_orchard_core.utils.math.transform.transform3d import Transform3D_M
 from robo_orchard_core.utils.torch_utils import Device
 
 __all__ = [
@@ -46,10 +43,17 @@ __all__ = [
 
 
 class BatchTransform3D(DataClass, TensorToMixin):
-    """A batch of 3D transformations.
+    """A batch of 3D rotation and translation transformations.
 
     This class is used to represent a batch of 3D transformations. It is
     useful when dealing with multiple objects or poses at once.
+
+    The transformation is represented by a 3D translation and a quaternion
+    rotation, and can be converted to a 4x4 transformation matrix.
+
+    Note: This class can only represent rotations and translations. For
+    general 3D transformations please use Transform3D_M.
+
     """
 
     xyz: TorchTensor = Field(
@@ -68,12 +72,11 @@ class BatchTransform3D(DataClass, TensorToMixin):
     timestamps: list[int] | None = None
     """Timestamps of the camera data in nanoseconds(1e-9 seconds)."""
 
-    @classmethod
+    @staticmethod
     def identity(
-        cls,
         batch_size: int,
         device: Device = "cpu",
-    ) -> Self:
+    ) -> BatchTransform3D:
         """Get a batch of identity transformations.
 
         Args:
@@ -83,7 +86,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
         Returns:
             BatchTransform3D: A batch of identity transformations.
         """
-        return cls(
+        return BatchTransform3D(
             xyz=torch.zeros(batch_size, 3, device=device),
             quat=torch.tensor(
                 [[1.0, 0.0, 0.0, 0.0]] * batch_size, device=device
@@ -175,20 +178,22 @@ class BatchTransform3D(DataClass, TensorToMixin):
         Returns:
             Transform3D_M: A batch of Transform3D_M objects.
         """
-        return Transform3D_M.from_rot_trans(
-            R=quaternion_to_matrix(self.quat), T=self.xyz
-        )
+        return Transform3D_M.from_quat_trans(Q=self.quat, T=self.xyz)
 
     def transform_points(self, points: torch.Tensor) -> torch.Tensor:
         """Transform a batch of points by the batch of transformations.
 
         Args:
-            points (torch.Tensor): A tensor of shape (N, P, 3) representing
-                the batch of points to transform.
+            points (torch.Tensor): A tensor of shape (N, P, 3) or (P, 3)
+                representing the batch of points to transform. If shape is
+                (P, 3), it will be treated as a single batch (N=1). When
+                shape is (N, P, 3), N must match the batch size of the
+                transformations.
 
         Returns:
             torch.Tensor: A tensor of shape (N, P, 3) representing
-                the transformed points.
+                the transformed points, where N is the batch size and P is
+                the number of points.
         """
         if points.dim() == 2:
             points = points[None]  # # (P, 3) -> (1, P, 3)
@@ -234,6 +239,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
 
             t = t1.compose(t2, t3)
             t = t1.compose(t2).compose(t3)
+            t = BatchFrameTransform.cls_compose(t1, t2, t3)
 
         Args:
             other (Self): The other batch of transformations.
@@ -245,6 +251,27 @@ class BatchTransform3D(DataClass, TensorToMixin):
 
         all_others = (self,) + others
         return type(self).cls_compose(*all_others)
+
+    def __matmul__(self, other: Self) -> Self:
+        """Overload the @ operator to compose two BatchTransform3D objects.
+
+        Different from the compose() method, this method follows the
+        mathematical convention of matrix multiplication order. The
+        following should be the same:
+
+        .. code-block:: python
+
+            t3 = t2 @ t1
+            t3 = t1.compose(t2)
+            t3 = BatchTransform3D.cls_compose(t1, t2)
+
+        Args:
+            other (Self): Another BatchTransform3D object to compose with self.
+
+        Returns:
+            Self: A new object with the composed transformations.
+        """
+        return other.compose(self)
 
     def subtract(self, other: Self) -> Self:
         """Subtract transformations with another.
@@ -505,6 +532,29 @@ class BatchFrameTransform(BatchTransform3D):
     """The coordinate frame ID of the parent frame."""
     child_frame_id: str
     """The coordinate frame ID of the child frame."""
+
+    @staticmethod
+    def identity(
+        parent_frame_id: str,
+        child_frame_id: str,
+        batch_size: int,
+        device: Device = "cpu",
+    ) -> BatchFrameTransform:
+        """Get a batch of identity transformations.
+
+        Args:
+            batch_size (int): The batch size.
+            device (Device): The device to put the tensors on.
+
+        Returns:
+            BatchTransform3D: A batch of identity transformations.
+        """
+        super_ret = BatchTransform3D.identity(batch_size, device=device)
+        return BatchFrameTransform(
+            parent_frame_id=parent_frame_id,
+            child_frame_id=child_frame_id,
+            **(super_ret.__dict__),
+        )
 
     def repeat(
         self, batch_size: int, timestamps: list[int] | None = None

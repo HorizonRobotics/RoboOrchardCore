@@ -319,12 +319,14 @@ class TestBatchTransform3D:
         batch_transform_03_1 = batch_transform_23.compose(
             batch_transform_12, batch_transform_01
         )
+
         batch_transform_23_M = batch_transform_23.as_Transform3D_M()
         batch_transform_12_M = batch_transform_12.as_Transform3D_M()
         batch_transform_01_M = batch_transform_01.as_Transform3D_M()
         batch_transform_03_1_M = batch_transform_23_M.compose(
             batch_transform_12_M, batch_transform_01_M
         )
+
         assert torch.allclose(
             batch_transform_03_1.quat,
             batch_transform_03_1_M.get_rotation_quaternion(),
@@ -333,6 +335,23 @@ class TestBatchTransform3D:
         assert torch.allclose(
             batch_transform_03_1.xyz,
             batch_transform_03_1_M.get_translation(),
+            atol=1e-5,
+        )
+        # test @ operator
+        batch_transform_03_1_ = (
+            batch_transform_01 @ batch_transform_12 @ batch_transform_23
+        )
+        batch_transform_03_1_M_ = (
+            batch_transform_01_M @ batch_transform_12_M @ batch_transform_23_M
+        )
+        assert torch.allclose(
+            batch_transform_03_1_.quat,
+            batch_transform_03_1_M_.get_rotation_quaternion(),
+            atol=1e-5,
+        )
+        assert torch.allclose(
+            batch_transform_03_1_.xyz,
+            batch_transform_03_1_M_.get_translation(),
             atol=1e-5,
         )
 

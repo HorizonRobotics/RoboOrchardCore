@@ -1,7 +1,7 @@
 import os
 import re
 
-rule = "^(feat|fix|bugfix|docs|style|refactor|perf|test|chore)\(.*\): [A-Z].*"  # noqa
+rule = r"^(feat|fix|bugfix|docs|style|refactor|perf|test|chore)\(.*\): [A-Z].*"
 
 error_hint = """
 Merge Request Title Validation Failed:

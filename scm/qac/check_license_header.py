@@ -34,7 +34,13 @@ LICENSE_HEADER_TEMPLATE = """# Project RoboOrchard
 """
 
 LICENSE_HEADERS = [
-    LICENSE_HEADER_TEMPLATE.format(year) for year in ["2025", "2024-2025"]
+    LICENSE_HEADER_TEMPLATE.format(year) for year in [
+        "2024",
+        "2025",
+        "2026",
+        "2024-2025",
+        "2024-2026"
+    ]
 ]
 
 

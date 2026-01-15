@@ -38,13 +38,22 @@ virtual_desktop = [
     "pyvirtualdisplay",
     "mss",
 ]
-all = ["robo_orchard_core[kinematic,ipy_viz,virtual_desktop]"]
+tools = [
+    "typer",
+    "fastapi",
+    "aiofiles",
+    "uvicorn"
+]
+all = ["robo_orchard_core[kinematic,ipy_viz,virtual_desktop,tools]"]
 
 [project.urls]
 Homepage = "https://github.com/HorizonRobotics/robo_orchard_core"
 Repository = "https://github.com/HorizonRobotics/robo_orchard_core"
 Source = "https://github.com/HorizonRobotics/robo_orchard_core"
 Issues = "https://github.com/HorizonRobotics/robo_orchard_core/issues"
+
+[project.scripts]
+robo-orchard = "robo_orchard_core.tools.cli:main"
 
 [build-system]
 requires = ["setuptools >= 77.0.3"]

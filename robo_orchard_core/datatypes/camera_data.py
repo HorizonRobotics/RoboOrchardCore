@@ -748,8 +748,8 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
             )
             .__dict__
         )
-        updated_dict["intrinsic_matrices"] = dst_intrinsic
-        updated_dict["image_shape"] = target_hw
+        updated_dict["intrinsic_matrices"] = dst_intrinsic  # type: ignore
+        updated_dict["image_shape"] = target_hw  # type: ignore
         return self.model_copy(update=updated_dict, deep=False)
 
 

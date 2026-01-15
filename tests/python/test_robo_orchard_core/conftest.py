@@ -15,9 +15,13 @@
 # permissions and limitations under the License.
 
 import os
+import tempfile
+from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
+from robo_orchard_core.tools.simple_file_server import app
 from robo_orchard_core.utils.ray import DEFAULT_RAY_INIT_CONFIG
 
 
@@ -37,3 +41,39 @@ def ray_init():
         print("resources: ", ray.available_resources())
 
     yield
+
+
+@pytest.fixture(scope="session")
+def test_directory():
+    """Creates a temporary directory with files for testing."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base_path = Path(tmpdir)
+        (base_path / "test.txt").write_text("This is a test file.")
+        subdir = base_path / "subdir"
+        subdir.mkdir()
+        (subdir / "nested.txt").write_text("Nested content.")
+        (base_path / "empty.txt").touch()
+        yield base_path
+
+
+@pytest.fixture
+def patched_app_state(test_directory: Path, monkeypatch):
+    """A fixture that correctly patches the application's BASE_DIR state."""
+    # Explicitly import the module where BASE_DIR is defined.
+    # We give it an alias to make the code clear.
+    from robo_orchard_core.tools import simple_file_server as server_module
+
+    # Use setattr to reliably patch the BASE_DIR variable in the module.
+    monkeypatch.setattr(server_module, "BASE_DIR", str(test_directory))
+    yield
+
+
+@pytest.fixture
+def client(patched_app_state):
+    """Provides a FastAPI TestClient.
+
+    It depends on `patched_app_state` to ensure the application is
+    correctly configured before the client is created.
+    """
+    with TestClient(app) as test_client:
+        yield test_client

@@ -475,7 +475,7 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
         return cls(**state.__dict__)
 
     def __getstate__(self) -> dict[Any, Any]:
-        return self.as_state().__dict__
+        return self.as_state().__dict__  # type: ignore
 
     def __setstate__(self, state: dict[Any, Any]) -> None:
         new = BatchFrameTransformGraph.from_state(

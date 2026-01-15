@@ -126,13 +126,50 @@ class TestCamera:
         ],
     )
     def test_project_unproject_consistency(self, device: str):
+
+        def _gen_points(extrinsic_mats: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:  # noqa: E501
+
+            # Define a safety threshold for depth.
+            # Points closer than this to the camera plane are
+            # numerically unstable.
+            EPSILON_DEPTH = 0.1
+
+            # Random 3D points
+            points_3d = (
+                torch.rand(size=(batch_size, num_points, 3), device=device) - 0.5  # noqa: E501
+            ) * 100.0
+
+            # Calculate the depth of each point in the Camera Coordinate
+            # System.
+            # P_cam = Extrinsic * P_world
+            # We need homogeneous coordinates
+            # for P_world to multiply with 3x4 Extrinsic
+            ones = torch.ones((batch_size, num_points, 1), device=device)
+            points_homo = torch.cat([points_3d, ones], dim=-1) # (B, P, 4)
+
+            # Matrix Multiplication: (B, 3, 4) @ (B, 4, P) -> (B, 3, P)
+            points_cam = torch.bmm(extrinsic_mats, points_homo.transpose(1, 2))
+
+            # Extract Z-depth (Batch, Num_Points)
+            # Assuming standard convention where Z is depth
+            depths = points_cam[:, 2, :]
+
+            # Create a mask for valid points
+            # (in front of camera and not too close)
+            valid_mask = depths > EPSILON_DEPTH
+
+            # Sanity check: Ensure we actually have some valid points to test
+            num_valid = valid_mask.sum()
+            if num_valid == 0:
+                pytest.skip(
+                    "Skipping test: No random points generated in front of camera."  # noqa: E501
+                )
+
+            return points_3d, valid_mask
+
+
         batch_size = 6
         num_points = 100
-
-        # Random 3D points
-        points_3d = (
-            torch.rand(size=(batch_size, num_points, 3), device=device) - 0.5
-        ) * 100.0
 
         # Random intrinsic matrix
         fx = torch.rand(batch_size, device=device) * 800 + 200
@@ -160,6 +197,9 @@ class TestCamera:
 
         projection_mats = intrinsic_mats @ extrinsic_mats
 
+        # Random points
+        points_3d, valid_mask = _gen_points(extrinsic_mats)
+
         # Project points to image
         projected_points = project_points_to_image(
             points_3d, projection_mats
@@ -181,6 +221,10 @@ class TestCamera:
             to_image_proj=None,
             from_image_unpoj=from_image_unpoj,
         )
+
+        points_3d = points_3d[valid_mask]
+        unprojected_points = unprojected_points[valid_mask]
+        unprojected_points_use_inv = unprojected_points_use_inv[valid_mask]
 
         # Check if the unprojected points are close to the original points
         assert torch.allclose(points_3d, unprojected_points, atol=1e-4), (

@@ -273,6 +273,16 @@ class BatchTransform3D(DataClass, TensorToMixin):
         """
         return other.compose(self)
 
+    @classmethod
+    def _cls_substract(cls, a, b):
+        t, q = math_utils.frame_transform_subtract(
+            t01=b.xyz,
+            q01=b.quat,
+            t02=a.xyz,
+            q02=a.quat,
+        )
+        return cls(xyz=t, quat=q, timestamps=copy.deepcopy(a.timestamps))
+
     def subtract(self, other: Self) -> Self:
         """Subtract transformations with another.
 
@@ -291,17 +301,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
         Returns:
             Self: The difference between the two transformations.
         """
-        t, q = math_utils.frame_transform_subtract(
-            t01=other.xyz,
-            q01=other.quat,
-            t02=self.xyz,
-            q02=self.quat,
-        )
-        content = self.__dict__.copy()
-        content["xyz"] = t
-        content["quat"] = q
-
-        return type(self)(**content)
+        return type(self)._cls_substract(self, other)
 
     def inverse(self) -> Self:
         """Get the inverse of the transformations.
@@ -609,6 +609,21 @@ class BatchFrameTransform(BatchTransform3D):
         return cls(
             child_frame_id=others[0].child_frame_id,
             parent_frame_id=cur_parent_frame_id,
+            **(super_ret.__dict__),
+        )
+
+    @classmethod
+    def _cls_substract(cls, a: BatchFrameTransform, b: BatchFrameTransform):
+        if a.parent_frame_id != b.parent_frame_id:
+            raise ValueError(
+                "The parent_frame_id of both BatchFrameTransform must be "
+                "the same to subtract. "
+                f"Got {a.parent_frame_id} and {b.parent_frame_id}."
+            )
+        super_ret = BatchTransform3D._cls_substract(a, b)
+        return cls(
+            child_frame_id=a.child_frame_id,
+            parent_frame_id=b.child_frame_id,
             **(super_ret.__dict__),
         )
 

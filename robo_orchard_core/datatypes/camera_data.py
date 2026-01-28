@@ -354,10 +354,11 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             frame_id=frame_id
         )
         assert self.intrinsic_matrices is not None
-        trans_M = Transform3D_M()
+        to_compose = []
+
         if frame_id == frame_id_parent:
             assert self.pose is not None
-            trans_M.compose(self.pose.inverse().as_Transform3D_M())
+            to_compose.append(self.pose.inverse().as_Transform3D_M())
         else:
             assert frame_id == frame_id_cam
         padded_intrinsic = (
@@ -367,7 +368,11 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             .clone()
         )
         padded_intrinsic[..., :3, :3] = self.intrinsic_matrices
-        trans_M.compose(Transform3D_M(matrix=padded_intrinsic))
+        to_compose.append(Transform3D_M(matrix=padded_intrinsic))
+        trans_M = Transform3D_M(
+            dtype=self.intrinsic_matrices.dtype,
+            device=self.intrinsic_matrices.device,
+        ).compose(*to_compose)
         return project_points_to_image(
             points_3d=points,
             projection_mat=trans_M.get_matrix().to(points),
@@ -400,8 +405,6 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             frame_id=frame_id
         )
         assert self.intrinsic_matrices is not None
-        trans_M = Transform3D_M()
-
         padded_intrinsic = (
             torch.eye(4)
             .to(self.intrinsic_matrices)
@@ -409,13 +412,17 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             .clone()
         )
         padded_intrinsic[..., :3, :3] = self.intrinsic_matrices
-        trans_M.compose(Transform3D_M(matrix=padded_intrinsic).inverse())
+        to_compose = [Transform3D_M(matrix=padded_intrinsic).inverse()]
         if frame_id == frame_id_parent:
             assert self.pose is not None
-            trans_M.compose(self.pose.as_Transform3D_M())
+            # trans_M = trans_M.compose(self.pose.as_Transform3D_M())
+            to_compose.append(self.pose.as_Transform3D_M())
         else:
             assert frame_id == frame_id_cam
-
+        trans_M = Transform3D_M(
+            dtype=self.intrinsic_matrices.dtype,
+            device=self.intrinsic_matrices.device,
+        ).compose(*to_compose)
         return unproject_image_points(
             uvd=uvd,
             from_image_unpoj=trans_M.get_matrix().to(uvd),

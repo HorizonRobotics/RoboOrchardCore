@@ -18,7 +18,7 @@ import pytest
 import torch
 
 from robo_orchard_core.datatypes.geometry import (
-    BatchFrameTransform as FrameTransform,
+    BatchFrameTransform,
     BatchPose as Pose,
     BatchTransform3D,
 )
@@ -115,7 +115,7 @@ class TestTransform3D:
                 )
 
 
-class TestFrameTransform:
+class TestBatchFrameTransform:
     @pytest.mark.parametrize(
         "device",
         [
@@ -134,7 +134,7 @@ class TestFrameTransform:
         )
         q = math_utils.quaternion_standardize(q)
         t = torch.rand(size=(3,), device=device) - 0.5
-        transform = FrameTransform(
+        transform = BatchFrameTransform(
             xyz=t, quat=q, parent_frame_id="parent", child_frame_id="child"
         )
         target_devices = [torch.device(device)]
@@ -173,6 +173,62 @@ class TestFrameTransform:
                     quat_target_device,
                     atol=1e-5,
                 )
+
+    @pytest.mark.parametrize(
+        "device",
+        [
+            pytest.param("cpu"),
+            pytest.param(
+                "cuda:0",
+                marks=pytest.mark.skipif(
+                    not torch.cuda.is_available(), reason="CUDA NOT AVAILABLE"
+                ),
+            ),
+        ],
+    )
+    def test_compose_and_substract(self, device):
+        q = math_utils.normalize(
+            torch.rand(size=(2, 4), device=device) - 0.5, dim=-1
+        )
+        q_02, q_01 = math_utils.quaternion_standardize(q).unbind(0)
+        t = torch.rand(size=(2, 3), device=device) - 0.5
+        t_02, t_01 = t.unbind(0)
+        batch_transform_02 = BatchFrameTransform(
+            xyz=t_02, quat=q_02, child_frame_id="2", parent_frame_id="0"
+        )
+        batch_transform_01 = BatchFrameTransform(
+            xyz=t_01, quat=q_01, child_frame_id="1", parent_frame_id="0"
+        )
+        batch_transform_12 = batch_transform_02.subtract(batch_transform_01)
+        assert batch_transform_12.parent_frame_id == "1"
+        assert batch_transform_12.child_frame_id == "2"
+        batch_transform_12_ = batch_transform_02.compose(
+            batch_transform_01.inverse()
+        )
+        assert torch.allclose(
+            batch_transform_12.quat, batch_transform_12_.quat, atol=1e-5
+        )
+        assert torch.allclose(
+            batch_transform_12.xyz, batch_transform_12_.xyz, atol=1e-5
+        )
+        assert (
+            batch_transform_12.parent_frame_id
+            == batch_transform_12_.parent_frame_id
+        )
+        assert (
+            batch_transform_12.child_frame_id
+            == batch_transform_12_.child_frame_id
+        )
+        assert batch_transform_12.timestamps == batch_transform_12_.timestamps
+
+        batch_transform_02_ = batch_transform_12.compose(batch_transform_01)
+
+        assert torch.allclose(
+            batch_transform_02.quat, batch_transform_02_.quat, atol=1e-5
+        )
+        assert torch.allclose(
+            batch_transform_02.xyz, batch_transform_02_.xyz, atol=1e-5
+        )
 
 
 class TestPose:

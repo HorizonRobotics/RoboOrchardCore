@@ -36,7 +36,7 @@ class TaskInfo:
     information.
     """
 
-    goal_condition: str
+    goal_condition: str | None
     """The goal condition of the task.
 
     This property should return a string that describes the goal

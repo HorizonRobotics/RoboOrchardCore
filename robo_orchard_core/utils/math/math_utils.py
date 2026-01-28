@@ -420,15 +420,12 @@ def quaternion_right_division(
 
 
 @torch_jit_compile
-def quaternion_to_axis_angle(
-    quaternions: torch.Tensor, eps: float = 1e-6
-) -> torch.Tensor:
+def quaternion_to_axis_angle(quaternions: torch.Tensor) -> torch.Tensor:
     """Convert rotations given as quaternions to axis/angle.
 
     Args:
         quaternions: quaternions with real part first, as tensor of
             shape (..., 4).
-        eps: The tolerance for Taylor approximation. Defaults to 1.0e-6.
 
     Returns:
         Rotations given as a vector in axis angle form, as a tensor
@@ -441,19 +438,9 @@ def quaternion_to_axis_angle(
     """
     norms = torch.norm(quaternions[..., 1:], p=2, dim=-1, keepdim=True)
     half_angles = torch.atan2(norms, quaternions[..., :1])
-    angles = 2 * half_angles
-
-    small_angles = angles.abs() < eps
-    sin_half_angles_over_angles = torch.empty_like(angles)
-    sin_half_angles_over_angles[~small_angles] = (
-        torch.sin(half_angles[~small_angles]) / angles[~small_angles]
-    )
-    # Apply Taylor approximation for small angles
-    # for x small, sin(x/2) is about x/2 - (x/2)^3/6
-    # so sin(x/2)/x is about 1/2 - (x*x)/48
-    sin_half_angles_over_angles[small_angles] = (
-        0.5 - (angles[small_angles] * angles[small_angles]) / 48
-    )
+    sin_half_angles_over_angles = 0.5 * torch.sinc(half_angles / torch.pi)
+    # angles/2 are between [-pi/2, pi/2], thus sin_half_angles_over_angles
+    # can't be zero
     return quaternions[..., 1:] / sin_half_angles_over_angles
 
 
@@ -745,9 +732,7 @@ def get_axis_and_angle_from_axis_angle(
 
 
 @torch_jit_compile
-def axis_angle_to_quaternion(
-    axis_angle: torch.Tensor, eps: float = 1e-6
-) -> torch.Tensor:
+def axis_angle_to_quaternion(axis_angle: torch.Tensor) -> torch.Tensor:
     """Convert rotations given as axis/angle to quaternions.
 
     Args:
@@ -764,24 +749,104 @@ def axis_angle_to_quaternion(
         https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/transforms/rotation_conversions.py
     """
     angles = torch.norm(axis_angle, p=2, dim=-1, keepdim=True)
-    half_angles = angles * 0.5
-
-    small_angles = angles.abs() < eps
-    sin_half_angles_over_angles = torch.empty_like(angles)
-    sin_half_angles_over_angles[~small_angles] = (
-        torch.sin(half_angles[~small_angles]) / angles[~small_angles]
-    )
-    # Apply Taylor approximation for small angles
-    # for x small, sin(x/2) is about x/2 - (x/2)^3/6
-    # so sin(x/2)/x is about 1/2 - (x*x)/48
-    sin_half_angles_over_angles[small_angles] = (
-        0.5 - (angles[small_angles] * angles[small_angles]) / 48
-    )
-    quaternions = torch.cat(
-        [torch.cos(half_angles), axis_angle * sin_half_angles_over_angles],
+    sin_half_angles_over_angles = 0.5 * torch.sinc(angles * 0.5 / torch.pi)
+    return torch.cat(
+        [torch.cos(angles * 0.5), axis_angle * sin_half_angles_over_angles],
         dim=-1,
     )
-    return quaternions
+
+
+def _angle_from_tan(
+    axis: str, other_axis: str, data, horizontal: bool, tait_bryan: bool
+) -> torch.Tensor:
+    """Extract the first or third Euler angle from the two members of
+    the matrix which are positive constant times its sine and cosine.
+
+    Args:
+        axis: Axis label "X" or "Y or "Z" for the angle we are finding.
+        other_axis: Axis label "X" or "Y or "Z" for the middle axis in the
+            convention.
+        data: Rotation matrices as tensor of shape (..., 3, 3).
+        horizontal: Whether we are looking for the angle for the third axis,
+            which means the relevant entries are in the same row of the
+            rotation matrix. If not, they are in the same column.
+        tait_bryan: Whether the first and third axes in the convention differ.
+
+    Returns:
+        Euler Angles in radians for each matrix in data as a tensor
+        of shape (...).
+
+    Reference:
+        https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/transforms/rotation_conversions.py
+
+    """  # noqa: D205
+
+    i1, i2 = {"X": (2, 1), "Y": (0, 2), "Z": (1, 0)}[axis]
+    if horizontal:
+        i2, i1 = i1, i2
+    even = (axis + other_axis) in ["XY", "YZ", "ZX"]
+    if horizontal == even:
+        return torch.atan2(data[..., i1], data[..., i2])
+    if tait_bryan:
+        return torch.atan2(-data[..., i2], data[..., i1])
+    return torch.atan2(data[..., i2], -data[..., i1])
+
+
+def _index_from_letter(letter: str) -> int:
+    if letter == "X":
+        return 0
+    if letter == "Y":
+        return 1
+    if letter == "Z":
+        return 2
+    raise ValueError("letter must be either X, Y or Z.")
+
+
+def matrix_to_euler_angles(
+    matrix: torch.Tensor, convention: str
+) -> torch.Tensor:
+    """Convert rotations given as rotation matrices to Euler angles in radians.
+
+    Args:
+        matrix: Rotation matrices as tensor of shape (..., 3, 3).
+        convention: Convention string of three uppercase letters.
+
+    Returns:
+        Euler angles in radians as tensor of shape (..., 3).
+
+    Reference:
+        https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/transforms/rotation_conversions.py
+    """  # noqa: D205
+    if len(convention) != 3:
+        raise ValueError("Convention must have 3 letters.")
+    if convention[1] in (convention[0], convention[2]):
+        raise ValueError(f"Invalid convention {convention}.")
+    for letter in convention:
+        if letter not in ("X", "Y", "Z"):
+            raise ValueError(f"Invalid letter {letter} in convention string.")
+    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
+        raise ValueError(f"Invalid rotation matrix shape {matrix.shape}.")
+    i0 = _index_from_letter(convention[0])
+    i2 = _index_from_letter(convention[2])
+    tait_bryan = i0 != i2
+    if tait_bryan:
+        central_angle = torch.asin(
+            torch.clamp(matrix[..., i0, i2], -1.0, 1.0)
+            * (-1.0 if i0 - i2 in [-1, 2] else 1.0)
+        )
+    else:
+        central_angle = torch.acos(torch.clamp(matrix[..., i0, i0], -1.0, 1.0))
+
+    o = (
+        _angle_from_tan(
+            convention[0], convention[1], matrix[..., i2], False, tait_bryan
+        ),
+        central_angle,
+        _angle_from_tan(
+            convention[2], convention[1], matrix[..., i0, :], True, tait_bryan
+        ),
+    )
+    return torch.stack(o, -1)
 
 
 @torch_jit_compile
@@ -837,7 +902,7 @@ def euler_angles_to_matrix(
     matrices = [
         _axis_angle_rotation(c, e)
         for c, e in zip(
-            convention, torch.unbind(euler_angles, -1), strict=False
+            convention, torch.unbind(euler_angles, -1), strict=True
         )
     ]
     # return functools.reduce(torch.matmul, matrices)

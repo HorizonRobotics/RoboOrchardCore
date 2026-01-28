@@ -22,25 +22,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from robo_orchard_core.tools.simple_file_server import app
-from robo_orchard_core.utils.ray import DEFAULT_RAY_INIT_CONFIG
 
 
 @pytest.fixture(scope="session", autouse=True)
 def workspace() -> str:
     return os.environ["ROBO_ORCHARD_TEST_WORKSPACE"]
-
-
-@pytest.fixture(scope="session", autouse=True)
-def ray_init():
-    import ray
-
-    ray_cfg = DEFAULT_RAY_INIT_CONFIG.copy()
-    if not ray.is_initialized():
-        print("Initializing Ray with config:", ray_cfg)
-        ray.init(**ray_cfg)
-        print("resources: ", ray.available_resources())
-
-    yield
 
 
 @pytest.fixture(scope="session")

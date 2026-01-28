@@ -18,7 +18,7 @@
 
 import logging
 
-from typing_extensions import Dict, Optional, Self
+from typing_extensions import Optional, Self
 
 DEFAULT_LOG_FORMAT = (
     "%rank %(asctime)-15s %(levelname)s "
@@ -107,7 +107,7 @@ class LoggerManager:
             ]
         self.set_handlers(handlers)
         self.set_format(format)
-        self._child_loggers: Dict[str, logging.Logger] = {}
+        # self._child_loggers: Dict[str, logging.Logger] = {}
 
     def get_logger(self) -> logging.Logger:
         """Get the global logger."""
@@ -126,10 +126,7 @@ class LoggerManager:
             logging.Logger: The child logger.
 
         """
-        if name in self._child_loggers:
-            return self._child_loggers[name]
         ret = self._logger.getChild(name)
-        self._child_loggers[name] = ret
         return ret
 
     def set_level(self, level: int) -> Self:

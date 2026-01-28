@@ -62,13 +62,34 @@ class Frame(_Frame):
         [Parent_link0]                          joint1 ->  [link1]
                     \\                        /
                         joint0  -->  [link0]
-                                             \
+                                              \
                                                 joint2 ->  [link2]
                                                 ||----------Frame2--------------||
 
     The frame name is usually the same as the link name. For root frame (the frame
     that has no parent), it is attached to a virtual fixed joint with empty name
     and offset.
+
+    The above illustration is for urdf xml, which use joint coordinates to define
+    the transform between links, and links do not have transform information.
+    In mjcf xml, the transforms are defined in the links (bodies), and the position
+    values in joints are usually zero. The equivalent illustration for mjcf is:
+
+    .. code-block:: text
+
+                        ||--------Frame0--------||
+                                                ||----------Frame0 Children-----||
+                                                ||----------Frame1--------------||
+        [Parent  ...  ]                         [link1] -->  joint1
+                    \\                        /
+                        [link0] -->  joint0
+                                              \
+                                                [link2] -->  joint2
+                                                ||----------Frame2--------------||
+
+    The current implementation of Frame assumes that either the joint or the link
+    defines the transform, but not both!
+
     """  # noqa: E501
 
     @property
@@ -85,7 +106,14 @@ class Frame(_Frame):
     def get_transform(
         self, joint_positions: torch.Tensor | BatchJointsState
     ) -> Transform3D_M:
-        """Get the transform of this frame w.r.t. the parent frame.
+        """Get the transform of this joint w.r.t. the parent frame.
+
+        Note:
+            The transform is computed based on the joint, not the link!
+            This implies that the frame is supposed in URDF style, where
+            the joint defines the transform between links. For MJCF style,
+            this method may return zero transform if the joint has zero
+            position and the transform is defined in the link (body)!
 
         Args:
             joint_positions (torch.Tensor|BatchJointsState): The joint
@@ -138,6 +166,10 @@ class Frame(_Frame):
                 extracted based on the joint name if available, otherwise
                 the first joint position will be used.
             parent_link_name (str): The name of the parent link frame.
+                We assume the parent link frame is the frame of the parent link
+
+            timestamps (list[int]|None): The timestamps for each batch
+                element. If None, timestamps will be set to None.
 
         Returns:
             BatchFrameTransform: The transform of this frame w.r.t. the
@@ -263,19 +295,20 @@ class KinematicChain:
     def find_frame(self, name: str) -> Frame | None:
         r"""Find a frame in the chain by name.
 
-        A Frame is defined as follows:
+        A Frame is defined as follows (In MJCF style):
 
         .. code-block:: text
 
                             ||--------Frame0--------||
                                                     ||----------Frame0 Children-----||
                                                     ||----------Frame1--------------||
-            [Parent_link0]                          joint1 ->  [link1]
-                        \                        /
-                            joint0  -->  [link0]
-                                                 \
-                                                    joint2 ->  [link2]
+            [Parent  ...  ]                         [link1] -->  joint1
+                        \\                        /
+                            [link0] -->  joint0
+                                                \
+                                                    [link2] -->  joint2
                                                     ||----------Frame2--------------||
+
 
         The frame name is usually the same as the link name. For root frame (the frame
         that has no parent), it is attached to a virtual fixed joint with empty name
@@ -293,9 +326,42 @@ class KinematicChain:
         frame_names: list[str] | None = None,
         timestamps: list[int] | None = None,
     ) -> dict[str, BatchFrameTransform]:
-        """Compute forward kinematics and return as BatchFrameTransform."""
+        """Compute forward kinematics and return as BatchFrameTransform.
+
+        The forward kinematics is computed as the pose of each frame in
+        the chain w.r.t. the root frame.
+
+        Note:
+            This method assumes the frames are defined in MJCF style, where
+            the transform is defined in the link (body) based coordinates.
+            For URDF style which defines the transform in joint only(No offset
+            in link), this method still works.
+
+        Args:
+            joint_positions (torch.Tensor): The joint positions tensor.
+                The tensor should be of shape (N, DOF) where N is the batch
+                size and DOF is the number of degrees of freedom in the chain.
+                The joint_positions tensor should follow the same order as the
+                chain's joint order of `self.joint_parameter_names`.
+            frame_names: A list of frame name to compute transforms for.
+                If None, all frames are computed.
+            timestamps (list[int]|None): The timestamps for each batch
+                element. If None, timestamps will be set to None.
+
+        """
 
         if isinstance(joint_positions, BatchJointsState):
+            if (
+                joint_positions.names is not None
+                and joint_positions.names != self.joint_parameter_names
+            ):
+                raise ValueError(
+                    "joint_positions.names does not match "
+                    "self.joint_parameter_names. "
+                    f"Got {joint_positions.names} but require "
+                    f"{self.joint_parameter_names}"
+                )
+
             if joint_positions.position is None:
                 raise ValueError("joint_positions.position is None")
             joint_positions = joint_positions.position
@@ -324,6 +390,13 @@ class KinematicChain:
 
         The forward kinematics is computed as the pose of each frame in
         the chain w.r.t. the root frame.
+
+        Note:
+            This method assumes the frames are defined in MJCF style, where
+            the transform is defined in the link (body) based coordinates.
+            For URDF style which defines the transform in joint only(No offset
+            in link), this method still works.
+
 
         Args:
             joint_positions (torch.Tensor): The joint positions tensor.

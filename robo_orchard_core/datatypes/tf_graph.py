@@ -32,7 +32,12 @@ __all__ = [
 
 
 class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE]):
-    """A generic edge graph data structure."""
+    """A generic edge graph data structure.
+
+    Template Parameters:
+        EDGE_TYPE: The type of the edges in the graph.
+        NODE_TYPE: The type of the nodes in the graph.
+    """
 
     edges: dict[str, dict[str, EDGE_TYPE]]
     """Graph is represented as a set of edges."""
@@ -200,6 +205,12 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
                 tf_list, bidirectional=bidirectional, static_tf=static_tf
             )
 
+    def __repr__(self) -> str:
+        return (
+            f"BatchFrameTransformGraph(nodes={self.nodes.keys()}, "
+            f"num_edges={sum(len(v) for v in self.edges.values())})"
+        )
+
     def is_mirrored_tf(
         self, parent_frame_id: str, child_frame_id: str
     ) -> bool:
@@ -214,6 +225,10 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
         return parent_frame_id in self._static_edges and self._static_edges[
             parent_frame_id
         ].get(child_frame_id, False)
+
+    def frame_names(self) -> set[str]:
+        """Get all frame names in the graph."""
+        return set(self.nodes.keys())
 
     def _add_node(self, node_id: str, node: str):
         """Add a node to the graph.

@@ -40,6 +40,7 @@ __all__ = [
     "RayRemoteClassConfig",
     "RayRemoteInstanceConfig",
     "RayRemoteInstance",
+    "ray_init",
 ]
 
 DEFAULT_RAY_INIT_CONFIG = {
@@ -60,6 +61,21 @@ DEFAULT_RAY_INIT_CONFIG = {
     "namespace": None,
     "runtime_env": None,
 }
+
+
+def ray_init(ray_init_config: dict[str, Any] | None = None):
+    """Initialize Ray with the given configuration.
+
+    In multi-process scenarios, this function still may create multiple
+    ray instances because ray.is_initialized() seems to not be process-safe.
+    If in such scenarios, please start ray from command line!
+
+    """
+    if not ray.is_initialized():
+        if ray_init_config is not None:
+            ray.init(**ray_init_config)
+        else:
+            ray.init(**DEFAULT_RAY_INIT_CONFIG)
 
 
 class RayActorDiedError(Exception):
@@ -186,6 +202,8 @@ class RayRemoteInstance(Generic[T]):
                 ray.init(**self.cfg.ray_init_config)
             else:
                 ray.init(**DEFAULT_RAY_INIT_CONFIG)
+
+        ray_init(self.cfg.ray_init_config)
 
         remote_cls = ray.remote(**self.cfg.remote_class_config.model_dump())(
             self.cfg.instance_config.class_type

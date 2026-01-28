@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 import torch
 
+from robo_orchard_core.datatypes import BatchCameraInfo, BatchFrameTransform
 from robo_orchard_core.utils.math import math_utils, transform3d
 from robo_orchard_core.utils.math.camera import (
     project_points_to_image,
@@ -113,6 +114,27 @@ class TestCamera:
             # rtol=1e-4,
         ), "Projected points do not match cv2 results"
 
+        # test BatchCameraInfo projection
+        cam_info = BatchCameraInfo(
+            intrinsic_matrices=intrinsic_mats,
+            pose=BatchFrameTransform(
+                xyz=trans_v,
+                quat=rot_q,
+                parent_frame_id="camera",
+                child_frame_id="world",
+            ).inverse(),
+            frame_id="camera",
+        )
+        cam_projected_points = cam_info.project_points_to_image(
+            points_3d, frame_id="world"
+        )
+        assert torch.allclose(
+            projected_points,
+            cam_projected_points,
+            atol=1e-6,
+            rtol=1e-4,
+        ), "Projected points do not match BatchCameraInfo projection results"
+
     @pytest.mark.parametrize(
         "device",
         [
@@ -126,9 +148,9 @@ class TestCamera:
         ],
     )
     def test_project_unproject_consistency(self, device: str):
-
-        def _gen_points(extrinsic_mats: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:  # noqa: E501
-
+        def _gen_points(
+            extrinsic_mats: torch.Tensor,
+        ) -> tuple[torch.Tensor, torch.Tensor]:  # noqa: E501
             # Define a safety threshold for depth.
             # Points closer than this to the camera plane are
             # numerically unstable.
@@ -136,7 +158,8 @@ class TestCamera:
 
             # Random 3D points
             points_3d = (
-                torch.rand(size=(batch_size, num_points, 3), device=device) - 0.5  # noqa: E501
+                torch.rand(size=(batch_size, num_points, 3), device=device)
+                - 0.5  # noqa: E501
             ) * 100.0
 
             # Calculate the depth of each point in the Camera Coordinate
@@ -145,7 +168,7 @@ class TestCamera:
             # We need homogeneous coordinates
             # for P_world to multiply with 3x4 Extrinsic
             ones = torch.ones((batch_size, num_points, 1), device=device)
-            points_homo = torch.cat([points_3d, ones], dim=-1) # (B, P, 4)
+            points_homo = torch.cat([points_3d, ones], dim=-1)  # (B, P, 4)
 
             # Matrix Multiplication: (B, 3, 4) @ (B, 4, P) -> (B, 3, P)
             points_cam = torch.bmm(extrinsic_mats, points_homo.transpose(1, 2))
@@ -166,7 +189,6 @@ class TestCamera:
                 )
 
             return points_3d, valid_mask
-
 
         batch_size = 6
         num_points = 100
@@ -234,6 +256,30 @@ class TestCamera:
             points_3d, unprojected_points_use_inv, atol=1e-4
         ), "Unprojected points do not match original points"
 
+        # test CameraInfo unprojection
+        cam_info = BatchCameraInfo(
+            intrinsic_matrices=intrinsic_mats,
+            pose=BatchFrameTransform(
+                xyz=trans_v,
+                quat=rot_q,
+                parent_frame_id="camera",
+                child_frame_id="world",
+            ).inverse(),
+            frame_id="camera",
+        )
+        cam_unprojected_points = cam_info.unproject_image_points(
+            projected_points, frame_id="world"
+        )
+        cam_unprojected_points = cam_unprojected_points[valid_mask]
+        assert torch.allclose(
+            points_3d,
+            cam_unprojected_points,
+            atol=1e-3,
+        ), (
+            "Unprojected points do not match BatchCameraInfo"
+            " unprojection results"
+        )
+
     @pytest.mark.parametrize(
         "mat_shape, point_batch, mat_batch",
         [
@@ -258,16 +304,29 @@ class TestCamera:
         device = "cpu"
         # Random 3D points
         points_3d = (
-            torch.rand(size=(point_batch, num_points, 3), device=device) - 0.5
+            torch.rand(
+                size=(point_batch, num_points, 3),
+                device=device,
+                dtype=torch.double,
+            )
+            - 0.5
         ) * 100.0
 
         # Random intrinsic matrix
-        fx = torch.rand(mat_batch, device=device) * 800 + 200
-        fy = torch.rand(mat_batch, device=device) * 800 + 200
-        cx = torch.rand(mat_batch, device=device) * 640
-        cy = torch.rand(mat_batch, device=device) * 480
+        fx = (
+            torch.rand(mat_batch, device=device, dtype=torch.double) * 800
+            + 200
+        )
+        fy = (
+            torch.rand(mat_batch, device=device, dtype=torch.double) * 800
+            + 200
+        )
+        cx = torch.rand(mat_batch, device=device, dtype=torch.double) * 640
+        cy = torch.rand(mat_batch, device=device, dtype=torch.double) * 480
 
-        intrinsic_mats = torch.zeros(mat_batch, 3, 3, device=device)
+        intrinsic_mats = torch.zeros(
+            mat_batch, 3, 3, device=device, dtype=torch.double
+        )
         intrinsic_mats[:, 0, 0] = fx
         intrinsic_mats[:, 1, 1] = fy
         intrinsic_mats[:, 0, 2] = cx
@@ -276,11 +335,18 @@ class TestCamera:
 
         if mat_shape != "3x3":
             trans_v = (
-                torch.rand(size=(mat_batch, 3), device=device) - 0.5
+                torch.rand(
+                    size=(mat_batch, 3), device=device, dtype=torch.double
+                )
+                - 0.5
             ) * 100.0
 
             rot_q = math_utils.normalize(
-                torch.rand(size=(mat_batch, 4), device=device) - 0.5, dim=-1
+                torch.rand(
+                    size=(mat_batch, 4), device=device, dtype=torch.double
+                )
+                - 0.5,
+                dim=-1,
             )
 
             extrinsic_mats = transform3d.Transform3D_M.from_quat_trans(

@@ -406,7 +406,7 @@ class Transform3D_M:
         composed_matrix = self._matrix.clone()
         if len(self._transforms) > 0:
             for other in self._transforms:
-                other_matrix = other.get_matrix()
+                other_matrix = other.get_matrix().to(composed_matrix)
                 # [points, 1] @ M1.transpose(-1,-2) @ M2.transpose(-1,-2)
                 # is equivalent to
                 # [points, 1] @ (M2 @ M1).transpose(-1,-2)

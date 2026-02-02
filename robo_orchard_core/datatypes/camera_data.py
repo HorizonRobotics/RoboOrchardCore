@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 import copy
-from typing import Callable, Literal, Sequence
+from typing import Callable, Literal, Sequence, TypeAlias
 
 import torch
 from PIL import Image
@@ -45,6 +45,8 @@ from robo_orchard_core.utils.math.transform import Transform2D_M, Transform3D_M
 from robo_orchard_core.utils.torch_utils import Device
 
 __all___ = [
+    "EncoderType",
+    "DecoderType",
     "ImageChannelLayout",
     "ImageMode",
     "Distortion",
@@ -759,6 +761,42 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         updated_dict["image_shape"] = target_hw  # type: ignore
         return self.model_copy(update=updated_dict, deep=False)
 
+    def encode(
+        self,
+        format: Literal["jpeg", "png"],
+        encoder: EncoderType | None = None,
+    ) -> BatchCameraDataEncoded:
+        """Encode the BatchCameraData to a BatchCameraDataEncoded.
+
+        Args:
+            format (Literal["jpeg", "png"]): The target format to encode
+                the data.
+            encoder (EncoderType | None, optional): The encoder
+                function to encode the data. It should take a tensor and
+                the format as input and return a list of byte strings.
+            format (Literal["jpeg", "png"]): The format to encode the data.
+
+        Returns:
+            BatchCameraDataEncoded: The encoded camera data.
+        """
+
+        if encoder is None:
+            encoder = _default_encoder
+        data = self
+        sensor_data_bytes = encoder(format, data)
+
+        return BatchCameraDataEncoded(
+            topic=data.topic,
+            frame_id=data.frame_id,
+            image_shape=data.image_shape,
+            intrinsic_matrices=data.intrinsic_matrices,
+            distortion=data.distortion,
+            pose=data.pose,
+            sensor_data=sensor_data_bytes,
+            format=format,  # type: ignore
+            timestamps=data.timestamps,
+        )
+
 
 class BatchCameraDataEncoded(BatchCameraInfo):
     """Data class for batched compressed camera sensor data.
@@ -820,28 +858,28 @@ class BatchCameraDataEncoded(BatchCameraInfo):
 
     def decode(
         self,
-        decoder: Callable[[bytes, str], BatchImageData],
+        decoder: DecoderType | None = None,
         device: Device = "cpu",
     ) -> BatchCameraData:
         """Decode the compressed sensor data to a BatchCameraData.
 
         Args:
-            decoder (Callable[[bytes, str], BatchImageData]): The decoder
+            decoder (DecoderType|None, optional): The decoder
                 function to decode the compressed data. It should take
                 a byte string and the format as input and return
-                BatchImageData.
+                BatchImageData. If None, use the pillow-based default decoder.
             device (Device, optional): The device to put the decoded data on.
                 Defaults to "cpu".
 
         Returns:
             BatchCameraData: The decoded camera data.
         """
-        decoded_data = [
-            decoder(data, self.format) for data in self.sensor_data
-        ]
-        sensor_data = torch.cat(
-            [d.sensor_data for d in decoded_data], dim=0
-        ).to(device)
+
+        if decoder is None:
+            decoder = _default_decoder
+
+        decoded = decoder(self.sensor_data, self.format)
+        sensor_data = decoded.sensor_data.to(device)
 
         image_shape = self.image_shape
         if image_shape is None:
@@ -854,8 +892,7 @@ class BatchCameraDataEncoded(BatchCameraInfo):
                     f"Expected {self.image_shape}, got "
                     f"({sensor_data.shape[1]}, {sensor_data.shape[2]})"
                 )
-        # use the pix_fmt in the first decoded data
-        pix_fmt = decoded_data[0].pix_fmt
+        pix_fmt = decoded.pix_fmt
 
         return BatchCameraData(
             topic=self.topic,
@@ -888,3 +925,85 @@ class BatchCameraDataEncoded(BatchCameraInfo):
             timestamps=concat_timestamps([other.timestamps for other in all]),
             **super_ret.__dict__,
         )
+
+
+EncoderType: TypeAlias = Callable[[str, BatchImageData], list[bytes]]
+DecoderType: TypeAlias = Callable[[list[bytes], str], BatchImageData]
+
+
+def _default_decoder(
+    compressed_data: list[bytes],
+    format: str,
+) -> BatchImageData:
+    """Default decoder function to decode compressed image data.
+
+    Args:
+        compressed_data (list[bytes]): The compressed image data.
+        format (str): The format of the compressed data.
+
+    Returns:
+        BatchImageData: The decoded image data.
+    """
+    import io
+
+    import numpy as np
+
+    if format not in ["jpeg", "png"]:
+        raise ValueError(
+            f"Unsupported format: {format}. Expected 'jpeg' or 'png'."
+        )
+
+    img_mode: ImageMode | None = None
+    img_tensors = []
+    for data in compressed_data:
+        img = Image.open(io.BytesIO(data))
+        img_tensor = torch.asarray(np.array(img))
+        if img_mode is None:
+            img_mode = ImageMode(img.mode)
+        else:
+            if img_mode != ImageMode(img.mode):
+                raise ValueError(
+                    "All images must have the same mode. "
+                    f"Expected {img_mode}, got {img.mode}."
+                )
+        if img_tensor.ndim == 2:
+            img_tensor = img_tensor.unsqueeze(-1)
+        assert img_tensor.ndim == 3, (
+            "Decoded image tensor must have 3 dimensions."
+        )
+        img_tensors.append(img_tensor)
+    sensor_data = torch.stack(img_tensors, dim=0)
+    return BatchImageData(
+        sensor_data=sensor_data,
+        pix_fmt=img_mode,
+    )
+
+
+def _default_encoder(
+    format: str,
+    data: BatchImageData,
+) -> list[bytes]:
+    """Default encoder function to encode image data to compressed format.
+
+    Args:
+        format (str): The target format to encode the data.
+        data (BatchImageData): The image data to encode.
+
+
+    Returns:
+        tuple[list[bytes], str]: The encoded image data and the format.
+    """
+    import io
+
+    if format not in ["jpeg", "png"]:
+        raise ValueError(
+            f"Unsupported format: {format}. Expected 'jpeg' or 'png'."
+        )
+
+    pil_images = data.as_pil_images()
+    compressed_data = []
+    for img in pil_images:
+        buf = io.BytesIO()
+        img.save(buf, format=format.upper())
+        compressed_data.append(buf.getvalue())
+    return compressed_data

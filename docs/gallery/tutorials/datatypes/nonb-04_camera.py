@@ -210,18 +210,8 @@ print(
 )
 
 
-# The most important method is `decode()`. It converts the compressed data back
-# into a fully usable `BatchCameraData` object with a pixel tensor.
-# We need to provide a decoder function that knows how to handle the bytes.
-def simple_decoder(image_bytes: bytes, format: str) -> BatchImageData:
-    pil_img = Image.open(io.BytesIO(image_bytes))
-    # Convert to tensor and add batch dimension
-    img_tensor = torch.from_numpy(np.array(pil_img)).unsqueeze(0)
-    return BatchImageData(sensor_data=img_tensor, pix_fmt=ImageMode.RGB)
-
-
 # Perform the decoding
-decoded_camera_data = encoded_camera_data.decode(decoder=simple_decoder)
+decoded_camera_data = encoded_camera_data.decode()
 
 print("\n--- After Decoding ---")
 print(f"Decoded object is of type: {type(decoded_camera_data)}")

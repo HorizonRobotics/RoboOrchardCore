@@ -197,11 +197,6 @@ class RayRemoteInstance(Generic[T]):
 
     def __init__(self, cfg: RayRemoteInstanceConfig, **kwargs):
         self.cfg = cfg
-        if not ray.is_initialized():
-            if self.cfg.ray_init_config is not None:
-                ray.init(**self.cfg.ray_init_config)
-            else:
-                ray.init(**DEFAULT_RAY_INIT_CONFIG)
 
         ray_init(self.cfg.ray_init_config)
 

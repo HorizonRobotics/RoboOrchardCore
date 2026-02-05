@@ -171,6 +171,19 @@ class BatchCameraInfo(DataClass, TensorToMixin):
     Shape is (B, 3, 3), where B is the batch size.
     """
 
+    transform_matrices: TorchTensor | None = None
+    """The 2D transform matrices for image.
+
+    This field is optional. If provided, it represents the 2D
+    transformation applied to the image after projection. For
+    example, it can represent image cropping, resizing, or rotation.
+
+    This field should be properly set when the image data is transformed
+    using 2D transformations.
+
+    Shape is (B, 3, 3), where B is the batch size.
+    """
+
     distortion: Distortion | None = None
 
     pose: BatchFrameTransform | None = None
@@ -231,6 +244,14 @@ class BatchCameraInfo(DataClass, TensorToMixin):
                     "pose. "
                     f"Expected {self.pose.child_frame_id}, got "
                     f"{self.frame_id}."
+                )
+        if self.transform_matrices is not None and self.pose is not None:
+            if self.transform_matrices.shape[0] != self.pose.batch_size:
+                raise ValueError(
+                    "The batch size of transform matrices must match the "
+                    "batch size of pose. "
+                    f"Expected {self.pose.batch_size}, got "
+                    f"{self.transform_matrices.shape[0]}."
                 )
 
     @property
@@ -301,19 +322,33 @@ class BatchCameraInfo(DataClass, TensorToMixin):
                     "All BatchCameraInfo objects must have the same "
                     "intrinsic matrix type. "
                 )
+
         intrinsic_matrices = (
             torch.cat(
                 [self.intrinsic_matrices]
-                + [other.intrinsic_matrices for other in others],  # type: ignore
+                + [other.intrinsic_matrices for other in others],  # type: ignore # noqa
                 dim=0,
             )
             if self.intrinsic_matrices is not None
             else None
         )
         pose = (
-            type(self.pose).concat([other.pose for other in all])  # type: ignore
+            type(self.pose).concat([other.pose for other in all])  # type: ignore # noqa
             if self.pose is not None
             else None
+        )
+        # handle transform_matrices
+        default_transform = torch.eye(3).unsqueeze(0)
+        transform_list = []
+        non_cnt = 0
+        for other in all:
+            if other.transform_matrices is not None:
+                transform_list.append(other.transform_matrices)
+            else:
+                non_cnt += 1
+                transform_list.append(default_transform)
+        transform_matrices = (
+            torch.cat(transform_list, dim=0) if non_cnt != len(all) else None
         )
 
         return cls(
@@ -323,6 +358,7 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             intrinsic_matrices=intrinsic_matrices,
             distortion=self.distortion.copy() if self.distortion else None,
             pose=pose,
+            transform_matrices=transform_matrices,
         )
 
     def project_points_to_image(
@@ -371,6 +407,17 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         )
         padded_intrinsic[..., :3, :3] = self.intrinsic_matrices
         to_compose.append(Transform3D_M(matrix=padded_intrinsic))
+
+        if self.transform_matrices is not None:
+            padded_transform = (
+                torch.eye(4)
+                .to(self.transform_matrices)
+                .expand(self.transform_matrices.shape[0], 4, 4)
+                .clone()
+            )
+            padded_transform[..., :3, :3] = self.transform_matrices
+            to_compose.append(Transform3D_M(matrix=padded_transform))
+
         trans_M = Transform3D_M(
             dtype=self.intrinsic_matrices.dtype,
             device=self.intrinsic_matrices.device,
@@ -406,6 +453,18 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         frame_id_cam, frame_id_parent = self._check_frame_id_for_projection(
             frame_id=frame_id
         )
+        to_compose = []
+
+        if self.transform_matrices is not None:
+            padded_transform = (
+                torch.eye(4)
+                .to(self.transform_matrices)
+                .expand(self.transform_matrices.shape[0], 4, 4)
+                .clone()
+            )
+            padded_transform[..., :3, :3] = self.transform_matrices
+            to_compose.append(Transform3D_M(matrix=padded_transform).inverse())
+
         assert self.intrinsic_matrices is not None
         padded_intrinsic = (
             torch.eye(4)
@@ -414,7 +473,7 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             .clone()
         )
         padded_intrinsic[..., :3, :3] = self.intrinsic_matrices
-        to_compose = [Transform3D_M(matrix=padded_intrinsic).inverse()]
+        to_compose.append(Transform3D_M(matrix=padded_intrinsic).inverse())
         if frame_id == frame_id_parent:
             assert self.pose is not None
             # trans_M = trans_M.compose(self.pose.as_Transform3D_M())
@@ -550,8 +609,8 @@ class BatchImageData(DataClass):
         layout = guess_channel_layout(self.sensor_data)
         if layout != ImageChannelLayout.HWC:
             raise NotImplementedError(
-                "Only HWC channel layout is supported for "
-                "applying 2D transformations."
+                "Only HWC channel layout is supported for applying "
+                "2D transformations."
             )
 
         src_hw = get_image_shape(self.sensor_data)
@@ -718,9 +777,15 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
     ) -> Self:
         """Apply a 2D transformation to the camera data.
 
-        This method applies a 2D transformation to the intrinsic matrices
+        This method record the 2D transformation to the transform matrices
         as well to keep the projection matrix (world to pixel) consistent
         with the transformed sensor data.
+
+        Note:
+            User should not directly modify the transform_matrices field,
+            neither resize or crop the sensor_data without using this method,
+            otherwise the projection matrix will be incorrect. Always use
+            this method to transform the sensor_data.
 
         Args:
             transform (Transform2D_M): The transformation to apply.
@@ -740,13 +805,11 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         if trans.shape[0] == 1 and src.shape[0] > 1:
             # repeat the transformation matrix for each camera
             trans = trans.repeat(src.shape[0], 1, 1)
-        dst_intrinsic = (
-            self.intrinsic_matrices.clone()
-            if self.intrinsic_matrices is not None
-            else None
-        )
-        if dst_intrinsic is not None:
-            dst_intrinsic = trans @ dst_intrinsic
+
+        transform_matrices = self.transform_matrices
+        if transform_matrices is None:
+            transform_matrices = torch.eye(3).unsqueeze(0).to(trans)
+
         updated_dict = (
             super()
             .apply_transform2d(
@@ -757,7 +820,7 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
             )
             .__dict__
         )
-        updated_dict["intrinsic_matrices"] = dst_intrinsic  # type: ignore
+        updated_dict["transform_matrices"] = trans @ transform_matrices  # type: ignore # noqa
         updated_dict["image_shape"] = target_hw  # type: ignore
         return self.model_copy(update=updated_dict, deep=False)
 
@@ -785,16 +848,16 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         data = self
         sensor_data_bytes = encoder(format, data)
 
+        data_dict = {
+            k: self.__dict__[k]
+            for k in self.__dict__.keys()
+            if k in BatchCameraDataEncoded.model_fields
+        }
+
         return BatchCameraDataEncoded(
-            topic=data.topic,
-            frame_id=data.frame_id,
-            image_shape=data.image_shape,
-            intrinsic_matrices=data.intrinsic_matrices,
-            distortion=data.distortion,
-            pose=data.pose,
             sensor_data=sensor_data_bytes,
             format=format,  # type: ignore
-            timestamps=data.timestamps,
+            **data_dict,
         )
 
 
@@ -878,6 +941,12 @@ class BatchCameraDataEncoded(BatchCameraInfo):
         if decoder is None:
             decoder = _default_decoder
 
+        data_dict = {
+            k: self.__dict__[k]
+            for k in self.__dict__.keys()
+            if k in BatchCameraData.model_fields
+        }
+
         decoded = decoder(self.sensor_data, self.format)
         sensor_data = decoded.sensor_data.to(device)
 
@@ -893,17 +962,12 @@ class BatchCameraDataEncoded(BatchCameraInfo):
                     f"({sensor_data.shape[1]}, {sensor_data.shape[2]})"
                 )
         pix_fmt = decoded.pix_fmt
+        data_dict["image_shape"] = image_shape
+        data_dict["sensor_data"] = sensor_data
 
         return BatchCameraData(
-            topic=self.topic,
-            frame_id=self.frame_id,
-            image_shape=image_shape,
-            intrinsic_matrices=self.intrinsic_matrices,
-            distortion=self.distortion,
-            pose=self.pose,
-            sensor_data=sensor_data,
             pix_fmt=pix_fmt,
-            timestamps=self.timestamps,
+            **data_dict,
         )
 
     @classmethod

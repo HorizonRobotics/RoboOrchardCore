@@ -230,6 +230,10 @@ class TestKinematicSerialChain:
         assert m_0.device == chain.device
         assert m_0.dim() == 3
 
+        # check that forward_kinematics_tf works
+        fk_tf = chain.forward_kinematics_tf(q)
+        assert fk_tf is not None
+
     def test_fk_with_batch(self, urdf_content: str):
         chain = KinematicSerialChain.from_content(
             urdf_content,

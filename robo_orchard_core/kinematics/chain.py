@@ -493,10 +493,28 @@ class KinematicSerialChain(KinematicChain):
         chain = KinematicChain.from_file(path, format, device)
         return KinematicSerialChain(chain, end_frame_name, root_frame_name)
 
+    def forward_kinematics_tf(
+        self,
+        joint_positions: torch.Tensor | BatchJointsState,
+        timestamps: list[int] | None = None,
+    ) -> dict[str, BatchFrameTransform]:
+        return super().forward_kinematics_tf(
+            joint_positions,
+            frame_names=None,
+            timestamps=timestamps,
+        )
+
     def forward_kinematics(
-        self, joint_positions: torch.Tensor
+        self, joint_positions: torch.Tensor, frame_names: None = None
     ) -> dict[str, Transform3D_M]:
         # TODO: Refactor to keep the same API as the base class
+
+        if frame_names is not None:
+            warnings.warn(
+                "KinematicSerialChain.forward_kinematics does not "
+                "support frame_names argument. Ignoring it."
+            )
+
         fk_dict = self._chain.forward_kinematics(
             joint_positions, end_only=False
         )

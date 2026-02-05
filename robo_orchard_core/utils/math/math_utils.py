@@ -578,6 +578,56 @@ def axis_angle_to_matrix(axis_angle: torch.Tensor) -> torch.Tensor:
     return quaternion_to_matrix(axis_angle_to_quaternion(axis_angle))
 
 
+def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
+    """Converts 6D rotation representation by Zhou et al. [1] to rotation matrix
+    using Gram--Schmidt orthogonalization per Section B of [1].
+
+    Args:
+        d6: 6D rotation representation, of size (..., 6)
+
+    Returns:
+        batch of rotation matrices of size (..., 3, 3)
+
+    [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+    On the Continuity of Rotation Representations in Neural Networks.
+    IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+    Retrieved from http://arxiv.org/abs/1812.07035
+
+    Reference:
+        https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/transforms/rotation_conversions.py
+    """  # noqa: D205 E501
+
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = F.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+    b2 = F.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack((b1, b2, b3), dim=-2)
+
+
+def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
+    """Converts rotation matrices to 6D rotation representation by Zhou et al. [1]
+    by dropping the last row. Note that 6D representation is not unique.
+
+    Args:
+        matrix: batch of rotation matrices of size (..., 3, 3)
+
+    Returns:
+        6D rotation representation, of size (..., 6)
+
+    [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+    On the Continuity of Rotation Representations in Neural Networks.
+    IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+    Retrieved from http://arxiv.org/abs/1812.07035
+
+    Reference:
+        https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/transforms/rotation_conversions.py
+
+    """  # noqa: D205 E501
+    batch_dim = matrix.size()[:-2]
+    return matrix[..., :2, :].clone().reshape(batch_dim + (6,))
+
+
 @torch_jit_compile
 def matrix_to_quaternion(
     matrix: torch.Tensor, normalize_output: bool = False
@@ -1271,83 +1321,3 @@ def pose_diff(
     t_diff = ta - tb
     q_diff = quaternion_right_division(qa, qb)
     return t_diff, q_diff
-
-
-DEFAULT_ACOS_BOUND: float = 1.0 - 1e-4
-
-
-def acos_linear_extrapolation(
-    x: torch.Tensor,
-    bounds: tuple[float, float] = (-DEFAULT_ACOS_BOUND, DEFAULT_ACOS_BOUND),
-) -> torch.Tensor:
-    """`arccos(x)` with stable backpropagation.
-
-    Implements `arccos(x)` which is linearly extrapolated outside `x`'s
-    original domain of `(-1, 1)`. This allows for stable backpropagation
-    in case `x` is not guaranteed to be strictly within `(-1, 1)`.
-
-    More specifically::
-
-        bounds=(lower_bound, upper_bound)
-        if lower_bound <= x <= upper_bound:
-            acos_linear_extrapolation(x) = acos(x)
-        elif x <= lower_bound: # 1st order Taylor approximation
-            acos_linear_extrapolation(x)
-                = acos(lower_bound) + dacos/dx(lower_bound) * (x - lower_bound)
-        else:  # x >= upper_bound
-            acos_linear_extrapolation(x)
-                = acos(upper_bound) + dacos/dx(upper_bound) * (x - upper_bound)
-
-    Args:
-        x: Input `Tensor`.
-        bounds: A float 2-tuple defining the region for the
-            linear extrapolation of `acos`.
-            The first/second element of `bound`
-            describes the lower/upper bound that defines the lower/upper
-            extrapolation region, i.e. the region where
-            `x <= bound[0]`/`bound[1] <= x`.
-            Note that all elements of `bound` have to be within (-1, 1).
-
-    Returns:
-        acos_linear_extrapolation: `Tensor` containing the extrapolated
-            `arccos(x)`.
-
-    Reference:
-        https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/transforms/math.py
-
-    """
-
-    def _acos_linear_approximation(x: torch.Tensor, x0: float) -> torch.Tensor:
-        """Calculates the 1st order Taylor expansion of `arccos(x)` around `x0`."""  # noqa: E501
-        return (x - x0) * _dacos_dx(x0) + math.acos(x0)
-
-    def _dacos_dx(x: float) -> float:
-        """Calculates the derivative of `arccos(x)` w.r.t. `x`."""
-        return (-1.0) / math.sqrt(1.0 - x * x)
-
-    lower_bound, upper_bound = bounds
-
-    if lower_bound > upper_bound:
-        raise ValueError(
-            "lower bound has to be smaller or equal to upper bound."
-        )
-
-    if lower_bound <= -1.0 or upper_bound >= 1.0:
-        raise ValueError(
-            "Both lower bound and upper bound have to be within (-1, 1)."
-        )
-
-    # init an empty tensor and define the domain sets
-    acos_extrap = torch.empty_like(x)
-    x_upper = x >= upper_bound
-    x_lower = x <= lower_bound
-    x_mid = (~x_upper) & (~x_lower)
-
-    # acos calculation for upper_bound < x < lower_bound
-    acos_extrap[x_mid] = torch.acos(x[x_mid])
-    # the linear extrapolation for x >= upper_bound
-    acos_extrap[x_upper] = _acos_linear_approximation(x[x_upper], upper_bound)
-    # the linear extrapolation for x <= lower_bound
-    acos_extrap[x_lower] = _acos_linear_approximation(x[x_lower], lower_bound)
-
-    return acos_extrap

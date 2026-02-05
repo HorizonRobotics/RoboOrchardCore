@@ -105,10 +105,9 @@ class TestBatchCameraData:
             target_hw=target_hw,
         )
         assert data.intrinsic_matrices is not None
-        gt_instrinsic_new = ts.get_matrix() @ data.intrinsic_matrices
-        assert new_data.intrinsic_matrices is not None
+        assert new_data.transform_matrices is not None
         assert torch.allclose(
-            gt_instrinsic_new, new_data.intrinsic_matrices, atol=1e-6
+            ts.get_matrix(), new_data.transform_matrices, atol=1e-6
         )
 
 

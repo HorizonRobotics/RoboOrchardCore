@@ -134,9 +134,11 @@ class Distortion(DataClass, TensorToMixin):
         """
         return Distortion(
             model=self.model,
-            coefficients=self.coefficients.clone()
-            if self.coefficients is not None
-            else None,
+            coefficients=(
+                self.coefficients.clone()
+                if self.coefficients is not None
+                else None
+            ),
         )
 
 
@@ -853,12 +855,8 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
             for k in self.__dict__.keys()
             if k in BatchCameraDataEncoded.model_fields
         }
-
-        return BatchCameraDataEncoded(
-            sensor_data=sensor_data_bytes,
-            format=format,  # type: ignore
-            **data_dict,
-        )
+        data_dict.update({"sensor_data": sensor_data_bytes, "format": format})
+        return BatchCameraDataEncoded(**data_dict)
 
 
 class BatchCameraDataEncoded(BatchCameraInfo):
@@ -964,11 +962,9 @@ class BatchCameraDataEncoded(BatchCameraInfo):
         pix_fmt = decoded.pix_fmt
         data_dict["image_shape"] = image_shape
         data_dict["sensor_data"] = sensor_data
+        data_dict["pix_fmt"] = pix_fmt
 
-        return BatchCameraData(
-            pix_fmt=pix_fmt,
-            **data_dict,
-        )
+        return BatchCameraData(**data_dict)
 
     @classmethod
     def concat(cls, all: Sequence[Self]) -> Self:
@@ -1032,9 +1028,9 @@ def _default_decoder(
                 )
         if img_tensor.ndim == 2:
             img_tensor = img_tensor.unsqueeze(-1)
-        assert img_tensor.ndim == 3, (
-            "Decoded image tensor must have 3 dimensions."
-        )
+        assert (
+            img_tensor.ndim == 3
+        ), "Decoded image tensor must have 3 dimensions."
         img_tensors.append(img_tensor)
     sensor_data = torch.stack(img_tensors, dim=0)
     return BatchImageData(

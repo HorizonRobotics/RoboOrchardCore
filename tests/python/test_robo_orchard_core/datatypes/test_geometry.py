@@ -17,12 +17,18 @@
 import pytest
 import torch
 
+from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
 from robo_orchard_core.datatypes.geometry import (
     BatchFrameTransform,
     BatchPose as Pose,
     BatchTransform3D,
 )
 from robo_orchard_core.utils.math import math_utils
+
+
+class DummyTensorContainer(DataClass, TensorToMixin):
+    tensor_a: torch.Tensor
+    tensor_b: torch.Tensor
 
 
 class TestTensorToMixin:
@@ -47,7 +53,9 @@ class TestTensorToMixin:
         t = torch.rand(size=(batch_size, 3), device=device) - 0.5
         batch_transform = BatchTransform3D(xyz=t, quat=q)
 
-        target_devices = [torch.device("cpu"), torch.device("cuda:0")]
+        target_devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            target_devices.append(torch.device("cuda:0"))
         target_dtypes = [torch.float32, torch.float64]
         for target_device in target_devices:
             for target_dtype in target_dtypes:
@@ -59,6 +67,21 @@ class TestTensorToMixin:
                 assert batch_transform.quat.device == target_device
                 assert batch_transform.xyz.dtype == target_dtype
                 assert batch_transform.quat.dtype == target_dtype
+
+    def test_tensor_to_mixin_dtype_only_and_exclude_fields(self):
+        data = DummyTensorContainer(
+            tensor_a=torch.ones((2, 2), dtype=torch.float32),
+            tensor_b=torch.ones((2, 2), dtype=torch.float32),
+        )
+        device_a = data.tensor_a.device
+        device_b = data.tensor_b.device
+
+        data.to(dtype=torch.float64, dtype_exclude_fields=["tensor_b"])
+
+        assert data.tensor_a.dtype == torch.float64
+        assert data.tensor_b.dtype == torch.float32
+        assert data.tensor_a.device == device_a
+        assert data.tensor_b.device == device_b
 
 
 class TestTransform3D:
@@ -95,11 +118,11 @@ class TestTransform3D:
             assert repeated_transform.quat.device == target_device
 
             # Check the values
-            xyz_target_device = torch.tensor(
-                transform.xyz, device=target_device
+            xyz_target_device = (
+                transform.xyz.clone().detach().to(device=target_device)
             )
-            quat_target_device = torch.tensor(
-                transform.quat, device=target_device
+            quat_target_device = (
+                transform.quat.clone().detach().to(device=target_device)
             )
 
             for i in range(batch_size):
@@ -155,11 +178,11 @@ class TestBatchFrameTransform:
             )
 
             # Check the values
-            xyz_target_device = torch.tensor(
-                transform.xyz, device=target_device
+            xyz_target_device = (
+                transform.xyz.clone().detach().to(device=target_device)
             )
-            quat_target_device = torch.tensor(
-                transform.quat, device=target_device
+            quat_target_device = (
+                transform.quat.clone().detach().to(device=target_device)
             )
 
             for i in range(batch_size):
@@ -262,8 +285,12 @@ class TestPose:
             assert repeated_pose.frame_id == pose.frame_id
 
             # Check the values
-            xyz_target_device = torch.tensor(pose.xyz, device=target_device)
-            quat_target_device = torch.tensor(pose.quat, device=target_device)
+            xyz_target_device = (
+                pose.xyz.clone().detach().to(device=target_device)
+            )
+            quat_target_device = (
+                pose.quat.clone().detach().to(device=target_device)
+            )
 
             for i in range(batch_size):
                 assert torch.allclose(
@@ -486,6 +513,70 @@ class TestBatchTransform3D:
             inv_batch_transform_m.get_rotation_quaternion(),
             atol=1e-5,
         )
+
+    def test_getitem_supports_int_slice_and_list(self):
+        transform = BatchTransform3D(
+            xyz=torch.tensor(
+                [[0.0, 0.1, 0.2], [1.0, 1.1, 1.2], [2.0, 2.1, 2.2]],
+                dtype=torch.float32,
+            ),
+            quat=torch.tensor(
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                ],
+                dtype=torch.float32,
+            ),
+            timestamps=[100, 200, 300],
+        )
+
+        item_int = transform[1]
+        assert item_int.batch_size == 1
+        assert item_int.timestamps == [200]
+        assert torch.equal(item_int.xyz, transform.xyz[[1]])
+
+        item_slice = transform[1:]
+        assert item_slice.batch_size == 2
+        assert item_slice.timestamps == [200, 300]
+        assert torch.equal(item_slice.xyz, transform.xyz[1:])
+
+        item_list = transform[[2, 0]]
+        assert item_list.batch_size == 2
+        assert item_list.timestamps == [300, 100]
+        assert torch.equal(item_list.xyz, transform.xyz[[2, 0]])
+
+    def test_compose_timestamps_rule(self):
+        base = BatchTransform3D(
+            xyz=torch.zeros((2, 3), dtype=torch.float32),
+            quat=torch.tensor(
+                [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                dtype=torch.float32,
+            ),
+            timestamps=[10, 20],
+        )
+        same_timestamps = BatchTransform3D(
+            xyz=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            quat=torch.tensor(
+                [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                dtype=torch.float32,
+            ),
+            timestamps=[10, 20],
+        )
+        diff_timestamps = BatchTransform3D(
+            xyz=torch.tensor([[0.0, 0.0, 1.0], [1.0, 1.0, 1.0]]),
+            quat=torch.tensor(
+                [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                dtype=torch.float32,
+            ),
+            timestamps=[30, 40],
+        )
+
+        composed_same = base.compose(same_timestamps)
+        assert composed_same.timestamps == [10, 20]
+
+        composed_diff = base.compose(diff_timestamps)
+        assert composed_diff.timestamps is None
 
 
 if __name__ == "__main__":

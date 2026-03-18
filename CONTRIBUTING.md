@@ -38,6 +38,9 @@ make doc
 
 ## Run test
 
+make sure that ray is installed and running before executing the following command.
+If ray is not running, you can start it by running `ray start --head` in your terminal.
+
 ```bash
 make test
 ```

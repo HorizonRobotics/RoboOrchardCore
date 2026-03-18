@@ -16,7 +16,7 @@
 
 
 """Configuration class that extends Pydantic's model type."""
-
+from __future__ import annotations
 import ast
 import importlib
 import inspect
@@ -460,12 +460,19 @@ class Config(BaseModel):
                 useful for round-trip serialization and deserialization.
                 Default is False.
             **kwargs: Additional keyword arguments to be passed to the
-                serialization method :meth:`BaseModel.model_dump_json`.
+                serialization method :meth:`BaseModel.model_dump_json`
+                and the string conversion methods of toml and yaml.
 
         Returns:
             str: The string representation of the configuration.
 
         """
+
+        toml_kwargs = {}
+        toml_kwargs["pretty"] = kwargs.pop("pretty", False)
+
+        yaml_kwargs = {}
+        yaml_kwargs["indent"] = kwargs.get("indent", None)
 
         json_str = self.model_dump_json(
             exclude_unset=exclude_unset,
@@ -482,10 +489,10 @@ class Config(BaseModel):
             return json_str
         elif format == "toml":
             data = from_json(json_str)
-            return toml.dumps(data, none_value=TOML_NULL)
+            return toml.dumps(data, none_value=TOML_NULL, **toml_kwargs)
         elif format == "yaml":
             data = from_json(json_str)
-            ret = yaml.dump(data, sort_keys=False)
+            ret = yaml.dump(data, sort_keys=False, **yaml_kwargs)
             assert isinstance(ret, str)
             return ret
         else:
@@ -554,6 +561,31 @@ class Config(BaseModel):
         if not isinstance(other, self.__class__):
             return False
         return self.content_equal(other)
+
+    def save(self, path: str, indent: int = 2, **kwargs):
+        """Saves the configuration to a file."""
+        # get file extension
+        ext = path.split(".")[-1]
+        if ext in ["toml", "json", "yaml"]:
+            data_str = self.to_str(format=ext, indent=indent, **kwargs)  # type: ignore
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}.")
+        with fsspec.open(path, "w") as f:
+            f.write(data_str)  # type: ignore
+
+    @overload
+    @staticmethod
+    def load(path: str, ensure_type: None = None) -> Any:
+        pass
+
+    @overload
+    @staticmethod
+    def load(path: str, ensure_type: type[ConfigT]) -> ConfigT:
+        pass
+
+    @staticmethod
+    def load(path: str, ensure_type: type[ConfigT] | None = None):
+        return load_from(path, ensure_type=ensure_type)
 
 
 class ClassConfig(Config, Generic[T_co]):
@@ -711,7 +743,7 @@ def load_from(path: str, ensure_type: type[ConfigT]) -> ConfigT:
     pass
 
 
-def load_from(path: str, ensure_type: type[ConfigT] | None = None) -> ConfigT:
+def load_from(path: str, ensure_type: type[ConfigT] | None = None):
     """Loads the configuration class from a file."""
     with fsspec.open(path, "r") as f:
         data = f.read()  # type: ignore

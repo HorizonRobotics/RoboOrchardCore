@@ -97,17 +97,19 @@ class LoggerManager:
     ):
         format = wrap_log_fmt_with_rank(format)
         self._logger = logging.getLogger("LoggerManager")
-        self._logger.setLevel(level)
         self._format = format
         self._level = level
 
         if handlers is None:
-            handlers = [
-                logging.StreamHandler(),
-            ]
+            handlers = []
+
+        if len(handlers) == 0 and not logging.getLogger().hasHandlers():
+            # if no handlers, add a default stream handler
+            handlers.append(logging.StreamHandler())
+
         self.set_handlers(handlers)
         self.set_format(format)
-        # self._child_loggers: Dict[str, logging.Logger] = {}
+        self.set_level(level)
 
     def get_logger(self) -> logging.Logger:
         """Get the global logger."""

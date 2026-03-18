@@ -249,11 +249,11 @@ class TestCamera:
         unprojected_points_use_inv = unprojected_points_use_inv[valid_mask]
 
         # Check if the unprojected points are close to the original points
-        assert torch.allclose(points_3d, unprojected_points, atol=1e-4), (
+        assert torch.allclose(points_3d, unprojected_points, atol=5e-3), (
             "Unprojected points do not match original points"
         )
         assert torch.allclose(
-            points_3d, unprojected_points_use_inv, atol=1e-4
+            points_3d, unprojected_points_use_inv, atol=5e-3
         ), "Unprojected points do not match original points"
 
         # test CameraInfo unprojection

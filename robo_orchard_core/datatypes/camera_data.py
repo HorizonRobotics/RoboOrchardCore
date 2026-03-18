@@ -24,7 +24,12 @@ import torch
 from PIL import Image
 from typing_extensions import Self
 
-from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
+from robo_orchard_core.datatypes.dataclass import (
+    DataClass,
+    TensorToMixin,
+    apply_to,
+    make_device,
+)
 from robo_orchard_core.datatypes.enum import StrEnum
 from robo_orchard_core.datatypes.geometry import (
     BatchFrameTransform,
@@ -283,6 +288,27 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             return self.distortion.model
         return None
 
+    def __getitem__(self, key: list[int] | slice | int) -> BatchCameraInfo:
+        """Get a subset of the batch camera info.
+
+        Args:
+            key (list[int]|slice|int): The indices of the batch to get.
+
+        Returns:
+            BatchCameraInfo: A new BatchCameraInfo object containing only the
+            specified batch indices.
+        """
+        if isinstance(key, int):
+            key = [key]
+        content = self.__dict__.copy()
+        if self.intrinsic_matrices is not None:
+            content["intrinsic_matrices"] = self.intrinsic_matrices[key]
+        if self.transform_matrices is not None:
+            content["transform_matrices"] = self.transform_matrices[key]
+        if self.pose is not None:
+            content["pose"] = self.pose[key]
+        return BatchCameraInfo(**content)
+
     @classmethod
     def concat(cls, all: Sequence[Self]) -> Self:
         """Concatenate two BatchCameraInfo objects.
@@ -528,6 +554,27 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             )
         return frame_id_cam, frame_id_parent
 
+    def get_intrinsic_with_transform(self) -> TorchTensor | None:
+        """Get the intrinsic matrix with the 2D transform applied.
+
+        If transform_matrices is not provided, returns the original intrinsic
+        matrices.
+
+        Returns:
+            TorchTensor | None: The intrinsic matrices with the 2D transform
+            applied. If intrinsic_matrices is None, returns None.
+        """
+        if self.transform_matrices is None:
+            return (
+                self.intrinsic_matrices.clone()
+                if self.intrinsic_matrices is not None
+                else None
+            )
+        if self.intrinsic_matrices is None:
+            return None
+
+        return torch.bmm(self.transform_matrices, self.intrinsic_matrices)
+
 
 class BatchImageData(DataClass):
     """Data class for batched camera sensor data.
@@ -551,6 +598,27 @@ class BatchImageData(DataClass):
 
     timestamps: list[int] | None = None
     """Timestamps of the camera data in nanoseconds(1e-9 seconds)."""
+
+    def __getitem__(self, key: list[int] | slice | int) -> BatchImageData:
+        """Get a subset of the batch image data.
+
+        Args:
+            key (list[int]|slice|int): The indices of the batch to get.
+
+        Returns:
+            BatchImageData: A new BatchImageData object containing only the
+            specified batch indices.
+        """
+        if isinstance(key, int):
+            key = [key]
+        content = self.__dict__.copy()
+        content["sensor_data"] = self.sensor_data[key]
+        if self.timestamps is not None:
+            if isinstance(key, slice):
+                content["timestamps"] = self.timestamps[key]
+            else:
+                content["timestamps"] = [self.timestamps[i] for i in key]
+        return BatchImageData(**content)
 
     @classmethod
     def concat(cls, all: Sequence[Self]) -> Self:
@@ -611,8 +679,8 @@ class BatchImageData(DataClass):
         layout = guess_channel_layout(self.sensor_data)
         if layout != ImageChannelLayout.HWC:
             raise NotImplementedError(
-                "Only HWC channel layout is supported for applying "
-                "2D transformations."
+                "Only HWC channel layout is supported for applying 2D "
+                "transformations."
             )
 
         src_hw = get_image_shape(self.sensor_data)
@@ -761,6 +829,25 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         """
         return self.sensor_data.shape[0]
 
+    def __getitem__(self, key: list[int] | slice | int) -> BatchCameraData:
+        """Get a subset of the batch camera data.
+
+        Args:
+            key (list[int]|slice|int): The indices of the batch to get.
+
+        Returns:
+            BatchCameraData: A new BatchCameraData object containing only the
+            specified batch indices.
+        """
+        if isinstance(key, int):
+            key = [key]
+        cam_info = BatchCameraInfo.__getitem__(self, key)
+        img_data = BatchImageData.__getitem__(self, key)
+        data_dict = {}
+        data_dict.update(cam_info.__dict__)
+        data_dict.update(img_data.__dict__)
+        return BatchCameraData(**data_dict)
+
     @classmethod
     def concat(cls, all: Sequence[Self]) -> Self:
         data_dict = {}
@@ -824,7 +911,7 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         )
         updated_dict["transform_matrices"] = trans @ transform_matrices  # type: ignore # noqa
         updated_dict["image_shape"] = target_hw  # type: ignore
-        return self.model_copy(update=updated_dict, deep=False)
+        return self.model_copy(update=updated_dict, deep=False)  # type: ignore
 
     def encode(
         self,
@@ -857,6 +944,65 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         }
         data_dict.update({"sensor_data": sensor_data_bytes, "format": format})
         return BatchCameraDataEncoded(**data_dict)
+
+    def to(
+        self,
+        device: Device | None = None,
+        dtype: torch.dtype | None = None,
+        non_blocking: bool = False,
+        dtype_exclude_fields: list[str] | None = None,
+    ) -> Self:
+        """Move the sensor data and relevant fields to the specified device and dtype.
+
+        This method performs in-place conversion of all tensors and modules
+        in the data class to the specified device and dtype.
+
+        Note that the `sensor_data` field is not affected by the `dtype` argument, as
+        `sensor_data` dtype is determined by pix_fmt.
+
+        Args:
+            device (Device|None, optional): The target device to move the
+                tensors/modules to. If None, the device will not be changed.
+                Defaults to None.
+            dtype (torch.dtype | None, optional): The target dtype to cast
+                the tensors to. If None, the dtype will not be changed.
+            non_blocking (bool, optional): If True, the operation will be
+                performed in a non-blocking manner. Defaults to False.
+            dtype_exclude_fields (list[str] | None, optional): A list of
+                field names to exclude from dtype conversion. If None, all
+                fields will be converted.
+        """  # noqa: E501
+        if dtype_exclude_fields is None:
+            dtype_exclude_fields = ["sensor_data"]
+        else:
+            dtype_exclude_fields.append("sensor_data")
+        device = make_device(device) if device is not None else None
+        for k, obj in self.__dict__.items():
+            if dtype_exclude_fields is not None and k in dtype_exclude_fields:
+                setattr(
+                    self,
+                    k,
+                    apply_to(
+                        obj,
+                        device=device,
+                        dtype=None,
+                        non_blocking=non_blocking,
+                    ),
+                )
+
+            else:
+                setattr(
+                    self,
+                    k,
+                    apply_to(
+                        obj,
+                        device=device,
+                        dtype=dtype,
+                        non_blocking=non_blocking,
+                    ),
+                )
+
+        return self
 
 
 class BatchCameraDataEncoded(BatchCameraInfo):
@@ -986,6 +1132,29 @@ class BatchCameraDataEncoded(BatchCameraInfo):
             **super_ret.__dict__,
         )
 
+    def __getitem__(
+        self, key: list[int] | slice | int
+    ) -> BatchCameraDataEncoded:
+        """Get a subset of the batch camera data."""
+        if isinstance(key, int):
+            key = [key]
+        cam_info = BatchCameraInfo.__getitem__(self, key)
+        data_dict = {}
+        data_dict.update(cam_info.__dict__)
+        data_dict["sensor_data"] = (
+            self.sensor_data[key]
+            if isinstance(key, slice)
+            else [self.sensor_data[i] for i in key]
+        )
+        data_dict["format"] = self.format
+        if self.timestamps is not None:
+            data_dict["timestamps"] = (
+                self.timestamps[key]
+                if isinstance(key, slice)
+                else [self.timestamps[i] for i in key]
+            )
+        return BatchCameraDataEncoded(**data_dict)
+
 
 EncoderType: TypeAlias = Callable[[str, BatchImageData], list[bytes]]
 DecoderType: TypeAlias = Callable[[list[bytes], str], BatchImageData]
@@ -1028,9 +1197,9 @@ def _default_decoder(
                 )
         if img_tensor.ndim == 2:
             img_tensor = img_tensor.unsqueeze(-1)
-        assert (
-            img_tensor.ndim == 3
-        ), "Decoded image tensor must have 3 dimensions."
+        assert img_tensor.ndim == 3, (
+            "Decoded image tensor must have 3 dimensions."
+        )
         img_tensors.append(img_tensor)
     sensor_data = torch.stack(img_tensors, dim=0)
     return BatchImageData(

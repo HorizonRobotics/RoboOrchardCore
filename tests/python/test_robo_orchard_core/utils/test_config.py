@@ -303,5 +303,37 @@ class TestTensorConfig:
         assert torch.equal(new_config.torch_tensor, torch_tensor)
 
 
+class TestConfigSaveLoad:
+    def test_to_str_with_yaml_indent(self):
+        cfg = DummyClassConfig2(
+            cfg1=DummyClassConfig(int_value=200),
+            cfg2=DummyClassConfig(int_value=300),
+        )
+        yaml_str = cfg.to_str(format="yaml", indent=4)
+        assert "    int_value: 200" in yaml_str
+        assert "    int_value: 300" in yaml_str
+
+    def test_to_str_with_toml_pretty(self):
+        cfg = DummyConfig(int_value=321)
+        toml_str = cfg.to_str(format="toml", pretty=True)
+        loaded = DummyConfig.from_str(toml_str, format="toml")
+        assert loaded == cfg
+
+    @pytest.mark.parametrize("ext", ["json", "toml", "yaml"])
+    def test_save_and_load(self, tmp_path, ext):
+        cfg = DummyConfig(int_value=4321)
+        path = tmp_path / f"dummy_cfg.{ext}"
+        cfg.save(str(path))
+
+        loaded = Config.load(str(path), ensure_type=DummyConfig)
+        assert isinstance(loaded, DummyConfig)
+        assert loaded == cfg
+
+    def test_save_with_unsupported_ext(self, tmp_path):
+        cfg = DummyConfig(int_value=1)
+        with pytest.raises(ValueError):
+            cfg.save(str(tmp_path / "dummy_cfg.txt"))
+
+
 if __name__ == "__main__":
     pytest.main(["-s", "test_config.py"])

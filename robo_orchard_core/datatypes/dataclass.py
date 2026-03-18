@@ -38,7 +38,12 @@ from robo_orchard_core.utils.config import (
 )
 from robo_orchard_core.utils.torch_utils import Device, make_device
 
-__all__ = ["DataClass", "TensorToMixin", "tensor_equal", "np2torch"]
+__all__ = [
+    "DataClass",
+    "TensorToMixin",
+    "tensor_equal",
+    "np2torch",
+]
 
 
 class DataClass(BaseModel):
@@ -190,9 +195,10 @@ class DataClass(BaseModel):
 class TensorToMixin:
     def to(
         self,
-        device: Device,
+        device: Device | None = None,
         dtype: torch.dtype | None = None,
         non_blocking: bool = False,
+        dtype_exclude_fields: list[str] | None = None,
     ) -> Self:
         """Move or cast the tensors/modules in the data class.
 
@@ -200,61 +206,43 @@ class TensorToMixin:
         in the data class to the specified device and dtype.
 
         Args:
-            device (Device): The target device to move the tensors/modules to.
+            device (Device|None, optional): The target device to move the
+                tensors/modules to. If None, the device will not be changed.
+                Defaults to None.
             dtype (torch.dtype | None, optional): The target dtype to cast
                 the tensors to. If None, the dtype will not be changed.
             non_blocking (bool, optional): If True, the operation will be
                 performed in a non-blocking manner. Defaults to False.
-
+            dtype_exclude_fields (list[str] | None, optional): A list of
+                field names to exclude from dtype conversion. If None, all
+                fields will be converted.
         """
 
-        def apply_to(obj, device, dtype, non_blocking):
-            if isinstance(obj, torch.Tensor):
-                return obj.to(
-                    device=device, dtype=dtype, non_blocking=non_blocking
-                )
-            elif isinstance(obj, torch.nn.Module):
-                return obj.to(
-                    device=device, dtype=dtype, non_blocking=non_blocking
-                )
-            elif isinstance(obj, list):
-                return [
-                    apply_to(
-                        item,
-                        device=device,
-                        dtype=dtype,
-                        non_blocking=non_blocking,
-                    )
-                    for item in obj
-                ]
-            elif isinstance(obj, tuple):
-                return tuple(
-                    apply_to(
-                        item,
-                        device=device,
-                        dtype=dtype,
-                        non_blocking=non_blocking,
-                    )
-                    for item in obj
-                )
-            elif isinstance(obj, dict):
-                return {
-                    k: apply_to(
-                        v,
-                        device=device,
-                        dtype=dtype,
-                        non_blocking=non_blocking,
-                    )
-                    for k, v in obj.items()
-                }
-            else:
-                return obj
-
-        device = make_device(device)
+        device = make_device(device) if device is not None else None
         for k, obj in self.__dict__.items():
-            self.__dict__[k] = apply_to(
-                obj, device=device, dtype=dtype, non_blocking=non_blocking
-            )
+            if dtype_exclude_fields is not None and k in dtype_exclude_fields:
+                setattr(
+                    self,
+                    k,
+                    apply_to(
+                        obj,
+                        device=device,
+                        dtype=None,
+                        non_blocking=non_blocking,
+                    ),
+                )
+
+            else:
+                setattr(
+                    self,
+                    k,
+                    apply_to(
+                        obj,
+                        device=device,
+                        dtype=dtype,
+                        non_blocking=non_blocking,
+                    ),
+                )
 
         return self
 
@@ -296,3 +284,42 @@ def np2torch(src: np.ndarray | list | dict | torch.Tensor) -> Any:
         return {k: np2torch(v) for k, v in src.items()}
     else:
         return src
+
+
+def apply_to(obj, device, dtype, non_blocking):
+    if isinstance(obj, torch.Tensor):
+        return obj.to(device=device, dtype=dtype, non_blocking=non_blocking)
+    elif isinstance(obj, torch.nn.Module):
+        return obj.to(device=device, dtype=dtype, non_blocking=non_blocking)
+    elif isinstance(obj, list):
+        return [
+            apply_to(
+                item,
+                device=device,
+                dtype=dtype,
+                non_blocking=non_blocking,
+            )
+            for item in obj
+        ]
+    elif isinstance(obj, tuple):
+        return tuple(
+            apply_to(
+                item,
+                device=device,
+                dtype=dtype,
+                non_blocking=non_blocking,
+            )
+            for item in obj
+        )
+    elif isinstance(obj, dict):
+        return {
+            k: apply_to(
+                v,
+                device=device,
+                dtype=dtype,
+                non_blocking=non_blocking,
+            )
+            for k, v in obj.items()
+        }
+    else:
+        return obj

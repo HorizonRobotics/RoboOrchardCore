@@ -23,6 +23,7 @@ import torch
 
 from robo_orchard_core.datatypes.camera_data import (
     BatchCameraData,
+    BatchCameraDataEncoded,
     BatchCameraInfo,
     BatchFrameTransform,
     Distortion,
@@ -110,6 +111,95 @@ class TestBatchCameraData:
             ts.get_matrix(), new_data.transform_matrices, atol=1e-6
         )
 
+    def test_getitem_supports_int_slice_and_list(self):
+        intrinsic_matrices = (
+            torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(3, 1, 1)
+        )
+        data = BatchCameraData(
+            sensor_data=torch.arange(3 * 2 * 2 * 1, dtype=torch.float32).view(
+                3, 2, 2, 1
+            ),
+            pix_fmt=ImageMode.L,
+            intrinsic_matrices=intrinsic_matrices,
+            timestamps=[11, 22, 33],
+            frame_id="camera",
+        )
+
+        data_int = data[1]
+        assert data_int.batch_size == 1
+        assert data_int.timestamps == [22]
+        assert torch.equal(data_int.sensor_data, data.sensor_data[[1]])
+
+        data_slice = data[1:]
+        assert data_slice.batch_size == 2
+        assert data_slice.timestamps == [22, 33]
+        assert torch.equal(data_slice.sensor_data, data.sensor_data[1:])
+
+        data_list = data[[2, 0]]
+        assert data_list.batch_size == 2
+        assert data_list.timestamps == [33, 11]
+        assert torch.equal(data_list.sensor_data, data.sensor_data[[2, 0]])
+
+    def test_to_keep_sensor_dtype_and_respect_dtype_exclude_fields(self):
+        data = BatchCameraData(
+            sensor_data=torch.randint(
+                low=0,
+                high=255,
+                size=(2, 6, 5, 3),
+                dtype=torch.uint8,
+            ),
+            pix_fmt=ImageMode.RGB,
+            intrinsic_matrices=(
+                torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1)
+            ),
+        )
+        data.to(dtype=torch.float64)
+        assert data.sensor_data.dtype == torch.uint8
+        assert data.intrinsic_matrices is not None
+        assert data.intrinsic_matrices.dtype == torch.float64
+
+        data = BatchCameraData(
+            sensor_data=torch.randint(
+                low=0,
+                high=255,
+                size=(2, 6, 5, 3),
+                dtype=torch.uint8,
+            ),
+            pix_fmt=ImageMode.RGB,
+            intrinsic_matrices=(
+                torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1)
+            ),
+        )
+        data.to(
+            dtype=torch.float64, dtype_exclude_fields=["intrinsic_matrices"]
+        )
+        assert data.sensor_data.dtype == torch.uint8
+        assert data.intrinsic_matrices is not None
+        assert data.intrinsic_matrices.dtype == torch.float32
+
+    def test_encoded_getitem_supports_int_slice_and_list(self):
+        encoded = BatchCameraDataEncoded(
+            sensor_data=[b"a", b"b", b"c"],
+            format="jpeg",
+            intrinsic_matrices=(
+                torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(3, 1, 1)
+            ),
+            timestamps=[101, 102, 103],
+            frame_id="camera",
+        )
+
+        encoded_int = encoded[2]
+        assert encoded_int.sensor_data == [b"c"]
+        assert encoded_int.timestamps == [103]
+
+        encoded_slice = encoded[1:]
+        assert encoded_slice.sensor_data == [b"b", b"c"]
+        assert encoded_slice.timestamps == [102, 103]
+
+        encoded_list = encoded[[2, 0]]
+        assert encoded_list.sensor_data == [b"c", b"a"]
+        assert encoded_list.timestamps == [103, 101]
+
 
 class TestBatchCameraInfo:
     @pytest.fixture()
@@ -173,6 +263,55 @@ class TestBatchCameraInfo:
             unprojected_points_3d,
             atol=1e-5,
         ), "Unprojected points do not match original points"
+
+    def test_getitem_and_get_intrinsic_with_transform(
+        self, dummy_camera_info: BatchCameraInfo
+    ):
+        assert dummy_camera_info.intrinsic_matrices is not None
+        transform_matrices = torch.tensor(
+            [
+                [[2.0, 0.0, 3.0], [0.0, 2.0, 4.0], [0.0, 0.0, 1.0]],
+                [[1.5, 0.0, 1.0], [0.0, 1.5, 2.0], [0.0, 0.0, 1.0]],
+            ],
+            dtype=torch.float32,
+        )
+        camera_info = dummy_camera_info.model_copy(
+            update={"transform_matrices": transform_matrices}
+        )
+
+        selected = camera_info[[1, 0]]
+        assert selected.intrinsic_matrices is not None
+        assert selected.transform_matrices is not None
+        assert selected.pose is not None
+        assert selected.intrinsic_matrices.shape[0] == 2
+        assert camera_info.intrinsic_matrices is not None
+        assert torch.equal(
+            selected.intrinsic_matrices, camera_info.intrinsic_matrices[[1, 0]]
+        )
+        assert torch.equal(
+            selected.transform_matrices, transform_matrices[[1, 0]]
+        )
+        assert selected.pose.batch_size == 2
+
+        intrinsic_with_transform = camera_info.get_intrinsic_with_transform()
+        assert intrinsic_with_transform is not None
+        assert torch.allclose(
+            intrinsic_with_transform,
+            torch.bmm(
+                transform_matrices,
+                dummy_camera_info.intrinsic_matrices,
+            ),
+            atol=1e-6,
+        )
+
+        no_transform = dummy_camera_info.model_copy(
+            update={"transform_matrices": None}
+        )
+        intrinsic_clone = no_transform.get_intrinsic_with_transform()
+        assert intrinsic_clone is not None
+        assert no_transform.intrinsic_matrices is not None
+        assert intrinsic_clone is not no_transform.intrinsic_matrices
+        assert torch.equal(intrinsic_clone, no_transform.intrinsic_matrices)
 
 
 if __name__ == "__main__":

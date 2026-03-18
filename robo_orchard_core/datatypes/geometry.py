@@ -220,6 +220,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
 
         q = torch.clone(first.quat)
         t = torch.clone(first.xyz)
+        all_timestamp_equals = True
         for other in others:
             t, q = math_utils.frame_transform_combine(
                 t12=t,
@@ -227,7 +228,12 @@ class BatchTransform3D(DataClass, TensorToMixin):
                 t01=other.xyz,
                 q01=other.quat,
             )
-        return cls(xyz=t, quat=q, timestamps=copy.deepcopy(first.timestamps))
+            all_timestamp_equals &= first.timestamps == other.timestamps
+
+        timestamps = (
+            copy.deepcopy(first.timestamps) if all_timestamp_equals else None
+        )
+        return cls(xyz=t, quat=q, timestamps=timestamps)
 
     def compose(self, *others: Self) -> Self:
         """Compose transformations with other transformations.
@@ -405,6 +411,28 @@ class BatchTransform3D(DataClass, TensorToMixin):
             quat=torch.cat([other.quat for other in all], dim=0),
             timestamps=concat_timestamps([other.timestamps for other in all]),
         )
+
+    def __getitem__(self, idx: list[int] | slice | int) -> Self:
+        """Get a subset of the batch by index.
+
+        Args:
+            idx: The index to select from the batch. This can be an int, a
+                slice, or a list of indices.
+
+        """
+        if isinstance(idx, int):
+            idx = [idx]
+        content = self.__dict__.copy()
+        content["xyz"] = self.xyz[idx]
+        content["quat"] = self.quat[idx]
+        # only include timestamps if they are not None
+        if self.timestamps is not None:
+            if isinstance(idx, slice):
+                content["timestamps"] = self.timestamps[idx]
+            else:
+                content["timestamps"] = [self.timestamps[i] for i in idx]
+
+        return type(self)(**content)
 
 
 class BatchPose(BatchTransform3D):

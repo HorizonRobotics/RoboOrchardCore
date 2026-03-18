@@ -20,7 +20,7 @@ import typer
 
 app = typer.Typer(
     help="Robo Orchard Core CLI - A unified toolset for robotics development.",
-    add_completion=False
+    add_completion=False,
 )
 
 
@@ -56,9 +56,13 @@ def load_plugins(cli_app: typer.Typer):
 
 @app.command(name="file-server")
 def file_server(
-    port: int | None = typer.Option(None, "--port", help="Port to bind the server to."),  # noqa: E501
-    host: str = typer.Option("127.0.0.1", "--host", help="Host interface to bind to."),  # noqa: E501
-    directory: str = typer.Option(".", "--dir", help="Directory to serve.")
+    port: int | None = typer.Option(
+        None, "--port", help="Port to bind the server to."
+    ),  # noqa: E501
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="Host interface to bind to."
+    ),  # noqa: E501
+    directory: str = typer.Option(".", "--dir", help="Directory to serve."),
 ):
     """Starts the simple HTTP file server."""
 

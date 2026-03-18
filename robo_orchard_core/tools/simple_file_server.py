@@ -332,7 +332,6 @@ async def head_file(request: Request, filepath: str):
 
 
 def start_server(host: str, port: int, directory: str):
-
     target_dir = os.path.abspath(directory)
     if not os.path.isdir(target_dir):
         print(f"Error: Directory '{target_dir}' does not exist.")
@@ -342,4 +341,5 @@ def start_server(host: str, port: int, directory: str):
     BASE_DIR = target_dir
 
     import uvicorn
+
     uvicorn.run(app, host=host, port=port, log_level="info")

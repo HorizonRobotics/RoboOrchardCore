@@ -16,6 +16,7 @@
 
 
 """Configuration class that extends Pydantic's model type."""
+
 from __future__ import annotations
 import ast
 import importlib

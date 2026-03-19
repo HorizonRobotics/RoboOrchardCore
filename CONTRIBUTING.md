@@ -1,5 +1,11 @@
 # Contribution Guide
 
+## AI-assisted contribution
+
+- This project is compatible with AI-assisted development, and contributors are encouraged to use GitHub Copilot, Codex, or other coding agents.
+- The repository includes AI agent instructions in `AGENTS.md` and `.github/instructions/`; use them as the source of truth when working with AI tools.
+- AI-assisted changes should still stay focused, reuse existing patterns, and be reviewed and validated before commit.
+
 ## Install by editable mode
 
 ```bash
@@ -11,6 +17,14 @@ make install-editable
 ```bash
 make dev-env
 ```
+
+## Contribution workflow
+
+- Keep changes focused and validate only what matches the scope of the change.
+- Use the `Makefile` targets in this document as the default local workflow.
+- For commit messages and GitLab merge requests, follow the source-of-truth guidance in `.github/instructions/git.instructions.md`.
+- Contributors may use an AI assistant to help stage changes, create commits, push branches, and open merge requests, as long as the resulting git history and MR content follow the repository instructions.
+- In particular, keep the commit title in the required `<type>(<scope>): <Description>.` format, include the structured multiline body, and use the same content for the final squash commit message and MR description.
 
 ## Lint
 
@@ -38,8 +52,8 @@ make doc
 
 ## Run test
 
-make sure that ray is installed and running before executing the following command.
-If ray is not running, you can start it by running `ray start --head` in your terminal.
+Make sure that Ray is installed and running before executing the following command.
+If Ray is not running, you can start it with `ray start --head`.
 
 ```bash
 make test

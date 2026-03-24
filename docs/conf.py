@@ -9,6 +9,7 @@
 
 # -- Path setup --------------------------------------------------------------
 
+import importlib
 import os
 
 # If extensions (or modules to document with autodoc) are in another directory,
@@ -22,12 +23,41 @@ sys.path.insert(0, os.path.join(os.path.abspath(os.path.dirname(__file__))))
 import re
 from collections import OrderedDict
 
-from doc_gen import gen_index, patch_autoapi  # type: ignore
 from pydantic import BaseModel
 from recommonmark.parser import CommonMarkParser
 from recommonmark.transform import AutoStructify
 
 import robo_orchard_core
+
+
+def ensure_sphinx_autoapi_available() -> None:
+    """Ensure the docs build uses the expected sphinx-autoapi package."""
+    required_modules = ("autoapi.extension", "autoapi._mapper")
+    missing_modules = []
+    for module_name in required_modules:
+        try:
+            importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            missing_modules.append(module_name)
+
+    if missing_modules:
+        missing_modules_str = ", ".join(sorted(missing_modules))
+        raise ModuleNotFoundError(
+            "Documentation build requires the `sphinx-autoapi` package "
+            f"providing {missing_modules_str}. Run `make dev-env` to "
+            "install the docs dependencies. If a different `autoapi` "
+            "package is installed in the environment, uninstall it first."
+        )
+
+
+def load_doc_gen():
+    ensure_sphinx_autoapi_available()
+    from doc_gen import gen_index, patch_autoapi  # type: ignore
+
+    return gen_index, patch_autoapi
+
+
+gen_index, patch_autoapi = load_doc_gen()
 
 CUR_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -453,8 +483,6 @@ def patch_autodoc(app):
 
 
 def setup(app):
-    app.add_js_file("google_analytics.js")
-    app.add_css_file("css/custom.css")
     app.add_transform(AutoStructify)
     app.add_config_value("recommonmark_config", {}, True)
     patch_autodoc(app)

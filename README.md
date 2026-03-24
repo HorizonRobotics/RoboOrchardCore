@@ -74,6 +74,6 @@ Test reports are written under `build/test/`.
 
 ## Documentation
 
-The source documentation lives under [`docs/`](docs/).
+The source documentation lives under `docs/`.
 Run `make dev-env` before `make doc` so the required Sphinx dependencies are
 available.

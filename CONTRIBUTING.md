@@ -46,14 +46,21 @@ pyright
 
 ## Build docs
 
+Make sure the development dependencies are installed first with
+`make dev-env`.
+
 ```bash
 make doc
 ```
 
 ## Run test
 
-Make sure that Ray is installed and running before executing the following command.
-If Ray is not running, you can start it with `ray start --head`.
+For the full repository test suite:
+
+- Make sure that Ray is installed and available in the active environment.
+- Export `ROBO_ORCHARD_TEST_WORKSPACE` to a workspace that contains the
+  required assets used by kinematics and image tests.
+- If Ray is not running, you can start it with `ray start --head`.
 
 ```bash
 make test

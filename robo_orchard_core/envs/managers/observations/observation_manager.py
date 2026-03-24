@@ -203,9 +203,9 @@ class ObservationManager(ManagerBase[EnvType_co, ObsManagerConfigType_co]):
                             )
                         shape[-1] += s.shape[-1]
                     ret[group_name] = gym.spaces.Box(
-                        low=np.stack(low, axis=-1),
-                        high=np.stack(high, axis=-1),
-                        shape=shape,
+                        low=np.concatenate(low, axis=-1),
+                        high=np.concatenate(high, axis=-1),
+                        shape=tuple(shape),
                     )
             else:
                 # Keep the observation terms separate

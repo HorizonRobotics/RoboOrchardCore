@@ -15,6 +15,7 @@
 # permissions and limitations under the License.
 
 from importlib.metadata import entry_points
+from typing import Optional
 
 import typer
 
@@ -56,7 +57,7 @@ def load_plugins(cli_app: typer.Typer):
 
 @app.command(name="file-server")
 def file_server(
-    port: int | None = typer.Option(
+    port: Optional[int] = typer.Option(
         None, "--port", help="Port to bind the server to."
     ),  # noqa: E501
     host: str = typer.Option(

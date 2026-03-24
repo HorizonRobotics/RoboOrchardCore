@@ -251,6 +251,25 @@ class TestKinematicSerialChain:
         assert m_0.shape[0] == b
         assert m_0.dim() == 3
 
+    def test_fk_supports_frame_names(self, urdf_content: str):
+        chain = KinematicSerialChain.from_content(
+            urdf_content,
+            "urdf",
+            root_frame_name="panda_link0",
+            end_frame_name="panda_link8",
+        )
+        assert chain is not None
+
+        q = torch.rand(chain.dof, device=chain.device, dtype=torch.float32)
+        frame_names = ["panda_link4", "panda_link8"]
+
+        fk = chain.forward_kinematics(q, frame_names=frame_names)
+
+        assert list(fk.keys()) == frame_names
+
+        fk_tf = chain.forward_kinematics_tf(q, frame_names=frame_names)
+        assert list(fk_tf.keys()) == frame_names
+
     def test_jacobian(self, urdf_content: str):
         chain = KinematicSerialChain.from_content(
             urdf_content,

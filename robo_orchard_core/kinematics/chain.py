@@ -496,25 +496,20 @@ class KinematicSerialChain(KinematicChain):
     def forward_kinematics_tf(
         self,
         joint_positions: torch.Tensor | BatchJointsState,
+        frame_names: list[str] | None = None,
         timestamps: list[int] | None = None,
     ) -> dict[str, BatchFrameTransform]:
         return super().forward_kinematics_tf(
             joint_positions,
-            frame_names=None,
+            frame_names=frame_names,
             timestamps=timestamps,
         )
 
     def forward_kinematics(
-        self, joint_positions: torch.Tensor, frame_names: None = None
+        self,
+        joint_positions: torch.Tensor,
+        frame_names: list[str] | None = None,
     ) -> dict[str, Transform3D_M]:
-        # TODO: Refactor to keep the same API as the base class
-
-        if frame_names is not None:
-            warnings.warn(
-                "KinematicSerialChain.forward_kinematics does not "
-                "support frame_names argument. Ignoring it."
-            )
-
         fk_dict = self._chain.forward_kinematics(
             joint_positions, end_only=False
         )
@@ -525,6 +520,8 @@ class KinematicSerialChain(KinematicChain):
             )
             for k, v in fk_dict.items()
         }
+        if frame_names is not None and frame_names != []:
+            fk_dict = {name: fk_dict[name] for name in frame_names}
         return fk_dict
 
     def jacobian(self, joint_positions: torch.Tensor) -> torch.Tensor:

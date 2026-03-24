@@ -18,7 +18,7 @@ from typing import Any
 import ray
 import torch
 from ray.actor import ActorProxy
-from ray.util.state import get_actor as get_actor_state
+from ray.exceptions import GetTimeoutError, RayActorError
 from typing_extensions import Generic, TypeVar
 
 from robo_orchard_core.utils.config import (
@@ -98,45 +98,26 @@ def is_ray_actor_alive(
     If the actor is died, it raises a RayActorDiedError.
     """
 
-    def check_alive():
-        actor_id = remote._actor_id.hex()
-        try:
-            state = get_actor_state(actor_id)
-            # handle case when the task is not submitted yet
-            if state is None:
-                if error_info is not None:
-                    error_info["error"] = f"Actor id {actor_id} not found!"
-                return False
-            actor_live_state: str = state.state  # type: ignore
-            # raise died error if the actor is dead
-            if actor_live_state == "DEAD":
-                death_cause = state.death_cause[  # type: ignore
-                    "creation_task_failure_context"
-                ]["formatted_exception_string"]
-                err_msg = f"Ray actor is dead. cause: {death_cause}"
-                if error_info is not None:
-                    error_info["error"] = err_msg
-                raise RayActorDiedError(err_msg)
-            if error_info is not None:
-                error_info["error"] = f"State: {actor_live_state}"
-            # only return true if the actor is alive
-            return state is not None and actor_live_state == "ALIVE"
-        except RayActorDiedError as e:
-            raise e
-        except Exception as e:
-            if error_info is not None:
-                error_info["error"] = str(e)
-            return False
-
-    import time
-
-    current_time = time.time()
-    while time.time() - current_time < timeout:
-        if check_alive():
-            return True
-        time.sleep(0.1)
-
-    return False
+    try:
+        ray.get(remote.__ray_ready__.remote(), timeout=timeout)
+        if error_info is not None:
+            error_info["error"] = "State: ALIVE"
+        return True
+    except GetTimeoutError:
+        if error_info is not None:
+            error_info["error"] = (
+                f"Timed out after {timeout} seconds waiting for actor ready."
+            )
+        return False
+    except RayActorError as e:
+        err_msg = f"Ray actor is dead. cause: {e}"
+        if error_info is not None:
+            error_info["error"] = err_msg
+        raise RayActorDiedError(err_msg) from e
+    except Exception as e:
+        if error_info is not None:
+            error_info["error"] = str(e)
+        return False
 
 
 class RayRemoteClassConfig(Config):

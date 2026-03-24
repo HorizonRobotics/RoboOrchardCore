@@ -19,6 +19,7 @@ import os
 import re
 from datetime import datetime
 from html import escape  # Used for HTML escaping to prevent XSS
+from pathlib import Path
 from typing import Optional
 
 import aiofiles
@@ -40,6 +41,24 @@ BASE_DIR = os.getenv("ROBO_ORCHARD_SIMPLE_FILE_SERVER_BASE_DIR", os.getcwd())
 if not os.path.isdir(BASE_DIR):
     raise FileNotFoundError(f"Directory {BASE_DIR} does not exist")
 print(f"Serving files from: {BASE_DIR}")
+
+
+def resolve_path_from_base(path: str) -> Path | None:
+    """Resolve a request path under the configured base directory.
+
+    Args:
+        path (str): The relative request path.
+
+    Returns:
+        Path | None: The resolved path if it stays within ``BASE_DIR``.
+            Returns None when the request escapes the configured base
+            directory.
+    """
+    base_dir = Path(BASE_DIR).resolve()
+    resolved_path = (base_dir / path.lstrip("/")).resolve(strict=False)
+    if resolved_path != base_dir and base_dir not in resolved_path.parents:
+        return None
+    return resolved_path
 
 
 def parse_byte_range(byte_range: str) -> tuple[Optional[int], Optional[int]]:
@@ -147,12 +166,11 @@ def generate_directory_listing(path: str, request_url: str) -> str | None:
         str: HTML content for the directory listing, or None if the path is
         not a directory.
     """
-    full_path = os.path.join(BASE_DIR, path)
-    if not os.path.isdir(full_path):
+    full_path = resolve_path_from_base(path)
+    if full_path is None or not full_path.is_dir():
         return None
 
-    items = os.listdir(full_path)
-    items.sort()  # Sort alphabetically
+    items = sorted(full_path.iterdir(), key=lambda item: item.name)
 
     html = [
         "<!DOCTYPE html>",
@@ -173,12 +191,11 @@ def generate_directory_listing(path: str, request_url: str) -> str | None:
 
     # Add file and directory list
     for item in items:
-        item_path = os.path.join(path, item).lstrip("/")
-        full_item_path = os.path.join(full_path, item)
-        if os.path.isdir(full_item_path):
-            item_display = f"{item}/"
+        item_path = os.path.join(path, item.name).lstrip("/")
+        if item.is_dir():
+            item_display = f"{item.name}/"
         else:
-            item_display = item
+            item_display = item.name
         html.append(
             f'<li><a href="/{escape(item_path)}">{escape(item_display)}</a></li>'  # noqa: E501
         )
@@ -239,29 +256,31 @@ async def serve_file(request: Request, filepath: str):
         HTTPException: If the file or directory is not found, or if the
         range is invalid.
     """
-    full_path = os.path.join(BASE_DIR, filepath)
+    full_path = resolve_path_from_base(filepath)
+    if full_path is None:
+        raise HTTPException(status_code=404, detail="File not found")
 
     # If it's a directory, return a file listing
-    if os.path.isdir(full_path):
+    if full_path.is_dir():
         html_content = generate_directory_listing(filepath, str(request.url))
         if html_content:
             return HTMLResponse(content=html_content, status_code=200)
         raise HTTPException(status_code=404, detail="Directory not found")
 
     # If it's a file, serve it
-    if not os.path.isfile(full_path):
+    if not full_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    file_stat = os.stat(full_path)
+    file_stat = full_path.stat()
     file_size = file_stat.st_size
     headers = get_base_headers(file_stat)
 
     range_header = request.headers.get("Range")
     if not range_header:
         return FileResponse(
-            full_path,
+            str(full_path),
             headers=headers,
-            media_type=guess_content_type(full_path),
+            media_type=guess_content_type(str(full_path)),
         )
 
     try:
@@ -288,14 +307,14 @@ async def serve_file(request: Request, filepath: str):
     )
 
     async def stream_response():
-        async for chunk in copy_byte_range(full_path, start, stop):
+        async for chunk in copy_byte_range(str(full_path), start, stop):
             yield chunk
 
     return StreamingResponse(
         stream_response(),
         status_code=206,
         headers=headers,
-        media_type=guess_content_type(full_path),
+        media_type=guess_content_type(str(full_path)),
     )
 
 
@@ -313,12 +332,12 @@ async def head_file(request: Request, filepath: str):
     Raises:
         HTTPException: If the file or directory is not found.
     """
-    full_path = os.path.join(BASE_DIR, filepath)
+    full_path = resolve_path_from_base(filepath)
 
-    if not os.path.exists(full_path) or os.path.isdir(full_path):
+    if full_path is None or not full_path.exists() or full_path.is_dir():
         raise HTTPException(status_code=404, detail="Not found")
 
-    file_stat = os.stat(full_path)
+    file_stat = full_path.stat()
     headers = get_base_headers(file_stat)
 
     # Add the Content-Length header based on the file size
@@ -327,7 +346,7 @@ async def head_file(request: Request, filepath: str):
     return Response(
         status_code=200,
         headers=headers,
-        media_type=guess_content_type(full_path),
+        media_type=guess_content_type(str(full_path)),
     )
 
 

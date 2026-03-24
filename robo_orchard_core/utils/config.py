@@ -123,13 +123,152 @@ def is_lambda_expression(name: str) -> bool:
         Whether the input string is a lambda expression.
     """
     try:
-        ast.parse(name)
-        return isinstance(ast.parse(name).body[0], ast.Expr) and isinstance(
-            ast.parse(name).body[0].value,  # type: ignore
-            ast.Lambda,
-        )
+        parsed = ast.parse(name, mode="eval")
+        return isinstance(parsed.body, ast.Lambda)
     except SyntaxError:
         return False
+
+
+def _validate_lambda_ast(node: ast.AST, arg_names: set[str]) -> None:
+    """Validate that a lambda AST only contains side-effect free nodes."""
+    if isinstance(node, ast.Lambda):
+        if (
+            node.args.posonlyargs
+            or node.args.kwonlyargs
+            or node.args.vararg is not None
+            or node.args.kwarg is not None
+            or node.args.defaults
+            or node.args.kw_defaults
+        ):
+            raise ValueError(
+                "Only simple lambda arguments without defaults are supported."
+            )
+        body_arg_names = {arg.arg for arg in node.args.args}
+        _validate_lambda_ast(node.body, body_arg_names)
+        return
+
+    if isinstance(node, ast.Name):
+        if node.id not in arg_names:
+            raise ValueError(
+                "Lambda expressions may only reference their own arguments."
+            )
+        return
+
+    if isinstance(node, ast.Constant):
+        return
+
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        for elt in node.elts:
+            _validate_lambda_ast(elt, arg_names)
+        return
+
+    if isinstance(node, ast.Dict):
+        for key, value in zip(node.keys, node.values, strict=True):
+            if key is None:
+                raise ValueError("Dictionary unpacking is not supported.")
+            _validate_lambda_ast(key, arg_names)
+            _validate_lambda_ast(value, arg_names)
+        return
+
+    if isinstance(node, ast.BinOp):
+        if not isinstance(
+            node.op,
+            (
+                ast.Add,
+                ast.Sub,
+                ast.Mult,
+                ast.Div,
+                ast.FloorDiv,
+                ast.Mod,
+                ast.Pow,
+            ),
+        ):
+            raise ValueError(
+                "Unsupported binary operator in lambda expression."
+            )
+        _validate_lambda_ast(node.left, arg_names)
+        _validate_lambda_ast(node.right, arg_names)
+        return
+
+    if isinstance(node, ast.UnaryOp):
+        if not isinstance(node.op, (ast.UAdd, ast.USub, ast.Not)):
+            raise ValueError(
+                "Unsupported unary operator in lambda expression."
+            )
+        _validate_lambda_ast(node.operand, arg_names)
+        return
+
+    if isinstance(node, ast.BoolOp):
+        if not isinstance(node.op, (ast.And, ast.Or)):
+            raise ValueError(
+                "Unsupported boolean operator in lambda expression."
+            )
+        for value in node.values:
+            _validate_lambda_ast(value, arg_names)
+        return
+
+    if isinstance(node, ast.Compare):
+        for op in node.ops:
+            if not isinstance(
+                op,
+                (
+                    ast.Eq,
+                    ast.NotEq,
+                    ast.Lt,
+                    ast.LtE,
+                    ast.Gt,
+                    ast.GtE,
+                    ast.In,
+                    ast.NotIn,
+                    ast.Is,
+                    ast.IsNot,
+                ),
+            ):
+                raise ValueError(
+                    "Unsupported comparison operator in lambda expression."
+                )
+        _validate_lambda_ast(node.left, arg_names)
+        for comparator in node.comparators:
+            _validate_lambda_ast(comparator, arg_names)
+        return
+
+    if isinstance(node, ast.IfExp):
+        _validate_lambda_ast(node.test, arg_names)
+        _validate_lambda_ast(node.body, arg_names)
+        _validate_lambda_ast(node.orelse, arg_names)
+        return
+
+    if isinstance(node, ast.Subscript):
+        _validate_lambda_ast(node.value, arg_names)
+        _validate_lambda_ast(node.slice, arg_names)
+        return
+
+    if isinstance(node, ast.Slice):
+        for item in (node.lower, node.upper, node.step):
+            if item is not None:
+                _validate_lambda_ast(item, arg_names)
+        return
+
+    raise ValueError(
+        f"Unsupported expression '{type(node).__name__}' in lambda string."
+    )
+
+
+def safe_lambda_from_string(name: str) -> Callable:
+    """Create a lambda from a restricted, side-effect free expression string.
+
+    Args:
+        name (str): The lambda expression string.
+
+    Returns:
+        Callable: The reconstructed lambda function.
+    """
+    parsed = ast.parse(name, mode="eval")
+    if not isinstance(parsed.body, ast.Lambda):
+        raise ValueError("Input is not a lambda expression.")
+    _validate_lambda_ast(parsed.body, set())
+    code = compile(parsed, "<config-lambda>", "eval")
+    return eval(code, {"__builtins__": {}}, {})
 
 
 def callable_to_string(value: Callable) -> str:
@@ -201,7 +340,7 @@ def string_to_callable(name: str) -> Callable:
     """  # noqa: E501
     try:
         if is_lambda_expression(name):
-            callable_object = eval(name)
+            callable_object = safe_lambda_from_string(name)
         else:
             mod_name, attr_name = name.split(":")
             mod = importlib.import_module(mod_name)
@@ -219,7 +358,7 @@ def string_to_callable(name: str) -> Callable:
             raise AttributeError(
                 f"The imported object is not callable: '{name}'"
             )
-    except (ValueError, ModuleNotFoundError) as e:
+    except (ValueError, ModuleNotFoundError, SyntaxError) as e:
         msg = (
             f"Could not resolve the input string '{name}' into callable object."  # noqa: E501
             " The format of input should be 'module:attribute_name'.\n"

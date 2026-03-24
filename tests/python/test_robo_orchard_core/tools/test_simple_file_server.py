@@ -112,6 +112,29 @@ class TestApiEndpoints:
         assert response.status_code == 404
         assert response.text == "File not found"
 
+    @pytest.mark.parametrize(
+        "path_template",
+        [
+            "/%2e%2e/{filename}",
+            "/..%2F{filename}",
+        ],
+    )
+    def test_path_traversal_is_rejected(
+        self,
+        client: TestClient,
+        test_directory,
+        path_template: str,
+    ):
+        """Tests that requests cannot escape the configured base directory."""
+        secret_name = f"{test_directory.name}_secret.txt"
+        secret_path = test_directory.parent / secret_name
+        secret_path.write_text("secret")
+
+        response = client.get(path_template.format(filename=secret_name))
+
+        assert response.status_code == 404
+        assert response.text == "File not found"
+
     def test_head_request(self, client: TestClient):
         """Tests a HEAD request for file metadata."""
         response = client.head("/test.txt")
@@ -121,6 +144,18 @@ class TestApiEndpoints:
         assert response.headers["content-length"] == str(
             len("This is a test file.")
         )
+
+    def test_head_path_traversal_is_rejected(
+        self, client: TestClient, test_directory
+    ):
+        """Tests that HEAD requests stay inside the base directory."""
+        secret_name = f"{test_directory.name}_head_secret.txt"
+        secret_path = test_directory.parent / secret_name
+        secret_path.write_text("secret")
+
+        response = client.head(f"/%2e%2e/{secret_name}")
+
+        assert response.status_code == 404
 
     def test_partial_content_range_request(self, client: TestClient):
         """Tests a valid byte range request."""

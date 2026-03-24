@@ -30,6 +30,7 @@ from robo_orchard_core.utils.config import (
     Config,
     NumpyTensor,
     TorchTensor,
+    string_to_callable,
 )
 
 
@@ -221,6 +222,18 @@ class TestCallableConfig:
         config = DummyCallableConfig()
         config.func = f1_decorated_with_wraps
         assert config() == 11
+
+    def test_string_to_callable_supports_safe_lambda(self):
+        func = string_to_callable("lambda x: x + 1")
+        assert func(2) == 3
+
+    def test_string_to_callable_rejects_lambda_with_side_effects(self):
+        with pytest.raises(ValueError, match="Could not resolve"):
+            string_to_callable(
+                "lambda x=__import__('os').system("
+                "'echo hi >/tmp/forbidden'"
+                "): x"
+            )
 
 
 class TestCascadeClassConfig:

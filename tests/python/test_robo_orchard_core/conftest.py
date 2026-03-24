@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from robo_orchard_core.tools.simple_file_server import app
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def workspace() -> str:
     return os.environ["ROBO_ORCHARD_TEST_WORKSPACE"]
 

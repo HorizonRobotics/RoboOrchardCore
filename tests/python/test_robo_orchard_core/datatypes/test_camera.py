@@ -313,6 +313,41 @@ class TestBatchCameraInfo:
         assert intrinsic_clone is not no_transform.intrinsic_matrices
         assert torch.equal(intrinsic_clone, no_transform.intrinsic_matrices)
 
+    def test_concat_rejects_mixed_pose_presence(
+        self, dummy_camera_info: BatchCameraInfo
+    ):
+        without_pose = dummy_camera_info.model_copy(update={"pose": None})
+
+        with pytest.raises(ValueError, match="pose type"):
+            BatchCameraInfo.concat([without_pose, dummy_camera_info])
+
+    def test_concat_fills_missing_transform_matrices_per_batch(
+        self, dummy_camera_info: BatchCameraInfo
+    ):
+        without_transform = dummy_camera_info.model_copy(
+            update={"transform_matrices": None}
+        )
+        transform = torch.tensor(
+            [[[2.0, 0.0, 3.0], [0.0, 2.0, 4.0], [0.0, 0.0, 1.0]]],
+            dtype=torch.float32,
+        )
+        with_transform = dummy_camera_info[0].model_copy(
+            update={"transform_matrices": transform}
+        )
+
+        merged = BatchCameraInfo.concat([without_transform, with_transform])
+
+        assert merged.transform_matrices is not None
+        assert merged.transform_matrices.shape == (3, 3, 3)
+        expected = torch.cat(
+            [
+                torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1),
+                transform,
+            ],
+            dim=0,
+        )
+        assert torch.equal(merged.transform_matrices, expected)
+
 
 if __name__ == "__main__":
     pytest.main(["-s", __file__])

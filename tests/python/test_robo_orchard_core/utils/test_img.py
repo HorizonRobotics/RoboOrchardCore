@@ -117,3 +117,36 @@ class TestWrapAffine:
             target_hw=target_hw,
         )
         assert torch.allclose(dst_img, cv2_dst_img, atol=3, rtol=0.1)
+
+    def test_wrapAffine_supports_2x3_matrices(self):
+        src_img = torch.arange(20, dtype=torch.float32).view(1, 1, 4, 5)
+        mat_2x3 = torch.tensor(
+            [[[1.0, 0.0, 1.0], [0.0, 1.0, -1.0]]], dtype=torch.float32
+        )
+        mat_3x3 = torch.tensor(
+            [
+                [
+                    [1.0, 0.0, 1.0],
+                    [0.0, 1.0, -1.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ],
+            dtype=torch.float32,
+        )
+
+        dst_2x3 = wrapAffine(
+            src=src_img,
+            M=mat_2x3,
+            target_hw=(4, 5),
+            interpolation="nearest",
+            align_corners=True,
+        )
+        dst_3x3 = wrapAffine(
+            src=src_img,
+            M=mat_3x3,
+            target_hw=(4, 5),
+            interpolation="nearest",
+            align_corners=True,
+        )
+
+        assert torch.equal(dst_2x3, dst_3x3)

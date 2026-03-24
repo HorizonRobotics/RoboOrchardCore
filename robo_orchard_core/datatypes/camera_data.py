@@ -350,6 +350,36 @@ class BatchCameraInfo(DataClass, TensorToMixin):
                     "All BatchCameraInfo objects must have the same "
                     "intrinsic matrix type. "
                 )
+        for pose in [other.pose for other in others]:
+            if [pose, self.pose].count(None) == 1:
+                raise ValueError(
+                    "All BatchCameraInfo objects must have the same pose "
+                    "type."
+                )
+
+        def get_batch_size(info: BatchCameraInfo) -> int:
+            if info.pose is not None:
+                return info.pose.batch_size
+            if info.intrinsic_matrices is not None:
+                return info.intrinsic_matrices.shape[0]
+            if info.transform_matrices is not None:
+                return info.transform_matrices.shape[0]
+            return 1
+
+        def default_transform_matrices(info: BatchCameraInfo) -> TorchTensor:
+            if info.transform_matrices is not None:
+                ref_tensor = info.transform_matrices
+            elif info.intrinsic_matrices is not None:
+                ref_tensor = info.intrinsic_matrices
+            elif info.pose is not None:
+                ref_tensor = info.pose.xyz
+            else:
+                ref_tensor = torch.tensor([], dtype=torch.float32)
+
+            batch_size = get_batch_size(info)
+            return torch.eye(
+                3, dtype=ref_tensor.dtype, device=ref_tensor.device
+            ).unsqueeze(0).repeat(batch_size, 1, 1)
 
         intrinsic_matrices = (
             torch.cat(
@@ -366,7 +396,6 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             else None
         )
         # handle transform_matrices
-        default_transform = torch.eye(3).unsqueeze(0)
         transform_list = []
         non_cnt = 0
         for other in all:
@@ -374,7 +403,7 @@ class BatchCameraInfo(DataClass, TensorToMixin):
                 transform_list.append(other.transform_matrices)
             else:
                 non_cnt += 1
-                transform_list.append(default_transform)
+                transform_list.append(default_transform_matrices(other))
         transform_matrices = (
             torch.cat(transform_list, dim=0) if non_cnt != len(all) else None
         )

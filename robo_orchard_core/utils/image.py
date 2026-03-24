@@ -112,6 +112,8 @@ def affine_mat2non_align_corners(
         to_theta=True,
         align_corners=False,
     )
+    # Convert back with align_corners=True on purpose so the resulting affine
+    # matrix matches cv2.warpAffine's point-based pixel convention.
     return convert_grid_sample_theta(
         mat=theta,
         src_hw=src_hw,
@@ -251,9 +253,10 @@ def wrapAffine(
 
     if M.shape[-2] != 3:
         mat = torch.zeros(
-            src.shape[:-2] + (3, 3), dtype=src.dtype, device=src.device
+            M.shape[:-2] + (3, 3), dtype=M.dtype, device=M.device
         )
         mat[..., :2, :3] = M[..., :2, :3]  # Copy the affine part
+        mat[..., 2, 2] = 1
     else:
         mat = M
 
@@ -273,6 +276,9 @@ def wrapAffine(
             "Please convert it to CHW format before using wrapAffine."
         )
     src_hw = get_image_shape(src, src_layout)
+    # This stays align_corners=True intentionally. It is part of the
+    # calibration needed to keep wrapAffine aligned with cv2-style affine
+    # transforms; do not couple it to the public align_corners argument below.
     theta = convert_grid_sample_theta(
         mat=mat,
         src_hw=src_hw,

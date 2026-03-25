@@ -64,6 +64,11 @@ def flatten_dict(
         item_iter = d.items()
     elif isinstance(d, (list, tuple)):
         item_iter = enumerate(d)
+    else:
+        raise TypeError(
+            "Input argument `d` should be a dictionary, list, or tuple. "
+            f"Received: {d}"
+        )
 
     for k, v in item_iter:
         if isinstance(k, int):

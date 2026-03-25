@@ -73,12 +73,14 @@ def resolve_matching_names(
     When a list of query regular expressions is provided, the function checks each target string against each
     query regular expression and returns the indices of the matched strings and the matched strings.
 
-    If the :attr:`preserve_order` is True, the ordering of the matched indices and names is the same as the order
-    of the provided list of strings. This means that the ordering is dictated by the order of the target strings
-    and not the order of the query regular expressions.
+    If the :attr:`preserve_order` is True, the ordering of the matched indices
+    and names is the same as the order of the provided query regular
+    expressions. This means that the ordering is dictated by the order of the
+    query regular expressions and not the order of the target strings.
 
-    If the :attr:`preserve_order` is False, the ordering of the matched indices and names is the same as the order
-    of the provided list of query regular expressions.
+    If the :attr:`preserve_order` is False, the ordering of the matched
+    indices and names is the same as the order of the provided list of
+    strings.
 
     For example, consider the list of strings is ['a', 'b', 'c', 'd', 'e'] and the regular expressions are ['a|c', 'b'].
     If :attr:`preserve_order` is False, then the function will return the indices of the matched strings and the
@@ -91,7 +93,8 @@ def resolve_matching_names(
     Args:
         keys: A regular expression or a list of regular expressions to match the strings in the list.
         list_of_strings: A list of strings to match.
-        preserve_order: Whether to preserve the order of the query keys in the returned values. Defaults to False.
+        preserve_order: Whether to preserve the order of the query keys in the
+            returned values. Defaults to False.
 
     Returns:
         A tuple of lists containing the matched indices and names.
@@ -171,12 +174,14 @@ def resolve_matching_names_values(
 ) -> tuple[list[int], list[str], list[Any]]:
     """Match a list of regular expressions in a dictionary. against a list of strings and return the matched indices, names, and values.
 
-    If the :attr:`preserve_order` is True, the ordering of the matched indices and names is the same as the order
-    of the provided list of strings. This means that the ordering is dictated by the order of the target strings
-    and not the order of the query regular expressions.
+    If the :attr:`preserve_order` is True, the ordering of the matched
+    indices, names, and values is the same as the order of the provided query
+    regular expressions. This means that the ordering is dictated by the order
+    of the query regular expressions and not the order of the target strings.
 
-    If the :attr:`preserve_order` is False, the ordering of the matched indices and names is the same as the order
-    of the provided list of query regular expressions.
+    If the :attr:`preserve_order` is False, the ordering of the matched
+    indices, names, and values is the same as the order of the provided list
+    of strings.
 
     For example, consider the dictionary is {"a|d|e": 1, "b|c": 2}, the list of strings is ['a', 'b', 'c', 'd', 'e'].
     If :attr:`preserve_order` is False, then the function will return the indices of the matched strings, the
@@ -186,7 +191,8 @@ def resolve_matching_names_values(
     Args:
         data: A dictionary of regular expressions and values to match the strings in the list.
         list_of_strings: A list of strings to match.
-        preserve_order: Whether to preserve the order of the query keys in the returned values. Defaults to False.
+        preserve_order: Whether to preserve the order of the query keys in the
+            returned values. Defaults to False.
 
     Returns:
         A tuple of lists containing the matched indices, names, and values.

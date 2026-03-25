@@ -53,6 +53,8 @@ def auto_retry(
         delay (float): The delay time. Default: 0.1.
         logger (logging.Logger): The logger. Default: logger.
     """
+    if retry_times <= 0:
+        raise ValueError("retry_times must be greater than 0.")
 
     def decorator(func):
         @functools.wraps(func)

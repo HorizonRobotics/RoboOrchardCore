@@ -62,3 +62,6 @@ def concat_timestamps(
                 "along the column dimension."
             )
         return first_ts
+    raise ValueError(
+        f"Unsupported concat_dim: {concat_dim}. Expected 'row' or 'col'."
+    )

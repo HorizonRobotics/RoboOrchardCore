@@ -136,13 +136,21 @@ class CameraBase(
                 frame. Defaults to True.
 
         Returns:
-            CameraData: The camera data.
+            CameraData: The camera data with a batch size of 1.
         """
         pose = self.pose_global if tf_global else self.tf_parent
+        intrinsic_matrix = self.intrinsic_matrix
+        if intrinsic_matrix.ndim == 2:
+            intrinsic_matrix = intrinsic_matrix.unsqueeze(0)
+
+        sensor_data = self.sensor_data
+        if sensor_data.ndim in (2, 3):
+            sensor_data = sensor_data.unsqueeze(0)
+
         return BatchCameraData(
-            intrinsic_matrices=self.intrinsic_matrix,
+            intrinsic_matrices=intrinsic_matrix,
             pose=pose,
-            sensor_data=self.sensor_data,
+            sensor_data=sensor_data,
             image_shape=self.image_shape,
             distortion=self.distortion,
         )

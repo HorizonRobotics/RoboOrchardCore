@@ -18,13 +18,9 @@ from __future__ import annotations
 import traceback
 import warnings
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
 
 import mss
 import numpy as np
-
-if TYPE_CHECKING:
-    from IPython.display import display
 
 try:
     import pyautogui
@@ -90,6 +86,8 @@ class IpyVirtualDisplay(BaseIpyViz):
         self._middle_click = False
 
     def display(self):
+        from IPython.display import display
+
         display(
             self.canvas,
             self.output,
@@ -98,6 +96,9 @@ class IpyVirtualDisplay(BaseIpyViz):
         self._render()
 
     def _on_event(self, event: DomEvent):
+        if self._closed:
+            return
+
         with self.output:
             # handle ctrlKey
             if event["ctrlKey"]:
@@ -131,6 +132,9 @@ class IpyVirtualDisplay(BaseIpyViz):
                 )
 
                 if event["type"] == "mousedown":
+                    # Keep the click location aligned with the projected
+                    # notebook coordinates before pressing the mouse button.
+                    pyautogui.moveTo(target_x, target_y, _pause=False)
                     if is_left_click(event):
                         pyautogui.mouseDown(button="left", _pause=True)
                         self._left_click = True
@@ -159,6 +163,9 @@ class IpyVirtualDisplay(BaseIpyViz):
             self._render()
 
     def _render(self):
+        if self._closed:
+            return
+
         def render_impl(
             img: np.ndarray,
             canvas: Canvas,
@@ -189,3 +196,17 @@ class IpyVirtualDisplay(BaseIpyViz):
             img=np_image,
             canvas=self.canvas,
         )
+
+    def close(self):
+        """Release display capture and widget resources."""
+        if self._closed:
+            return
+
+        if (
+            self._last_render_task is not None
+            and not self._last_render_task.done()
+        ):
+            self._last_render_task.cancel()
+        self._render_executor.shutdown(wait=False, cancel_futures=True)
+        self._mss.__exit__(None, None, None)
+        super().close()

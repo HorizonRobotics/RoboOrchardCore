@@ -150,6 +150,7 @@ class OrderedTaskExecutor:
         self._num_workers = num_workers
         self._drop_cnt = 0
         self._offset = 0
+        self._closed = False
         if num_workers > 0:
             if max_queue_size > 0 and max_queue_size < 2 * num_workers:
                 raise ValueError(
@@ -185,6 +186,9 @@ class OrderedTaskExecutor:
             TaskQueueFulledError: If the task queue has reached its maximum
             size.
         """
+        if self._closed:
+            raise RuntimeError("OrderedTaskExecutor is closed.")
+
         if (
             self._max_queue_size > 0
             and len(self._data_buffer) == self._max_queue_size
@@ -337,24 +341,55 @@ class OrderedTaskExecutor:
         """
         return len(self._data_buffer)
 
-    def __del__(self):
-        """Clean up and finalize all remaining tasks."""
-        if hasattr(self, "_rcvd_idx"):
-            while self._rcvd_idx < self._sent_idx:
-                if self._rcvd_idx in self._data_buffer:
-                    ret = self._data_buffer.pop(self._rcvd_idx)
-                    try:
-                        if isinstance(ret, Future):
-                            _ = ret.result()
-                    except:  # noqa
-                        pass
-                self._rcvd_idx += 1
-        if hasattr(self, "_cancel_queues"):
-            for f in self._cancel_queues:
-                try:
-                    if isinstance(f, Future):
-                        _ = f.result()
-                except:  # noqa
-                    pass
+    def close(
+        self,
+        wait: bool = True,
+        cancel_pending: bool = False,
+    ) -> None:
+        """Close the executor and release pending tasks.
+
+        Args:
+            wait (bool, optional): Whether to wait for running tasks to
+                finish. Default is True.
+            cancel_pending (bool, optional): Whether to cancel queued
+                futures before shutdown. Default is False.
+        """
+        if self._closed:
+            return
+
+        pending_futures: list[Future] = []
+        for ret in self._data_buffer.values():
+            if isinstance(ret, Future):
+                if cancel_pending:
+                    ret.cancel()
+                pending_futures.append(ret)
+        for ret in self._cancel_queues:
+            if isinstance(ret, Future):
+                if cancel_pending:
+                    ret.cancel()
+                pending_futures.append(ret)
+
         if hasattr(self, "_executor"):
-            self._executor.shutdown()
+            shutdown_kwargs = {"wait": wait}
+            if cancel_pending:
+                shutdown_kwargs["cancel_futures"] = True
+            self._executor.shutdown(**shutdown_kwargs)
+
+        if wait:
+            for ret in pending_futures:
+                try:
+                    _ = ret.result()
+                except Exception:
+                    pass
+
+        self._data_buffer.clear()
+        self._cancel_queues.clear()
+        self._rcvd_idx = self._sent_idx
+        self._closed = True
+
+    def __del__(self):
+        """Best-effort cleanup without blocking interpreter shutdown."""
+        try:
+            self.close(wait=False, cancel_pending=True)
+        except Exception:
+            pass

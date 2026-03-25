@@ -19,12 +19,9 @@ import traceback
 import warnings
 from abc import ABCMeta, abstractmethod
 from io import BytesIO
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
 import numpy as np
-
-if TYPE_CHECKING:
-    from IPython.display import display
 
 try:
     from ipycanvas import Canvas, hold_canvas
@@ -145,6 +142,7 @@ class BaseIpyViz(metaclass=ABCMeta):
         )
 
         self.event.on_dom_event(self._on_event)
+        self._closed = False
 
     @abstractmethod
     def _on_event(self, event: DomEvent):
@@ -155,4 +153,18 @@ class BaseIpyViz(metaclass=ABCMeta):
 
         This function should only be called in Jupyter notebook.
         """
+        from IPython.display import display
+
         display(self.canvas, self.output)
+
+    def close(self):
+        """Release notebook widgets owned by this visualization."""
+        if self._closed:
+            return
+
+        if hasattr(self.event, "close"):
+            self.event.close()
+        if hasattr(self.output, "close"):
+            self.output.close()
+
+        self._closed = True

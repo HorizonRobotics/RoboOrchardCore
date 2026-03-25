@@ -34,6 +34,11 @@ def delayed_task(x):
     return x * 2
 
 
+def short_delayed_task(x):
+    time.sleep(0.3)
+    return x * 2
+
+
 def failing_task(x: int) -> int:
     """A task that raises an exception for even numbers."""
     if x % 2 == 0:
@@ -133,9 +138,36 @@ def test_buffer_size():
 def test_cleanup_on_delete():
     """Test cleanup behavior when executor is deleted."""
 
-    executor = OrderedTaskExecutor(fn=dummy_task, num_workers=2)
+    executor = OrderedTaskExecutor(
+        fn=short_delayed_task,
+        num_workers=1,
+        executor_type="thread",
+        max_queue_size=2,
+    )
     executor.put(1)
-    executor.put(2)
+    start = time.perf_counter()
+    del executor
+    assert time.perf_counter() - start < 0.5
+
+
+def test_close_wait_false_returns_immediately():
+    executor = OrderedTaskExecutor(
+        fn=short_delayed_task,
+        num_workers=1,
+        executor_type="thread",
+        max_queue_size=2,
+    )
+    executor.put(1)
+    start = time.perf_counter()
+    executor.close(wait=False, cancel_pending=True)
+    assert time.perf_counter() - start < 0.2
+
+
+def test_put_after_close_raises_runtime_error():
+    executor = OrderedTaskExecutor(fn=dummy_task)
+    executor.close(wait=False)
+    with pytest.raises(RuntimeError, match="closed"):
+        executor.put(1)
 
 
 def test_drop_first():

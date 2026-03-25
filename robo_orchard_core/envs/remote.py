@@ -128,13 +128,7 @@ class RemoteEnv(RayRemoteInstance[EnvBase], EnvBase):
         ).future()
 
     def close(self):
-        if hasattr(self, "_remote") and self._remote is not None:
-            try:
-                ray.get(self.remote.close.remote())
-                ray.kill(self.remote)
-            except Exception:
-                pass
-            del self._remote
+        super().close(remote_close_method="close")
 
     @property
     def num_envs(self) -> int:

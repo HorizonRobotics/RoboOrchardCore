@@ -84,6 +84,9 @@ class RemotePolicy(RayRemoteInstance[PolicyMixin], PolicyMixin):
     def async_reset(self, *args, **kwargs) -> concurrent.futures.Future:
         return self.remote.reset.remote(*args, **kwargs).future()
 
+    def close(self):
+        super().close()
+
 
 class RemotePolicyConfig(
     PolicyConfig[RemotePolicy],

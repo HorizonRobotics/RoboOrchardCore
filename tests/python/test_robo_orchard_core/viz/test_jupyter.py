@@ -15,11 +15,13 @@
 # permissions and limitations under the License.
 
 from concurrent.futures import Future
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
 from robo_orchard_core.viz.jupyter.base_viz import BaseIpyViz, DomEvent
+from robo_orchard_core.viz.jupyter.ipy_cam import IpyFPVCameraViz
 from robo_orchard_core.viz.jupyter.virtual_display import IpyVirtualDisplay
 
 
@@ -155,6 +157,42 @@ class TestJupyterViz:
 
         assert display_calls == [(canvas, output)]
         assert rendered == [True]
+
+    def test_fpv_camera_display_uses_runtime_import(self, monkeypatch):
+        ipy_display = pytest.importorskip("IPython.display")
+        display_calls = []
+        monkeypatch.setattr(
+            ipy_display,
+            "display",
+            lambda *args: display_calls.append(args),
+        )
+        monkeypatch.setattr(
+            "robo_orchard_core.viz.jupyter.ipy_cam.widgets",
+            SimpleNamespace(
+                HBox=lambda children: ("HBox", tuple(children)),
+            ),
+            raising=False,
+        )
+
+        viz = cast(Any, type("DummyFPV", (), {})())
+        viz._description = object()
+        viz._camera_info_box = object()
+        viz.canvas = object()
+        viz.output = object()
+        rendered = []
+        pose_updates = []
+        viz._render = lambda: rendered.append(True)
+        viz._on_pose_change = lambda: pose_updates.append(True)
+
+        IpyFPVCameraViz.display(viz)
+
+        assert len(display_calls) == 1
+        hbox, canvas, output = display_calls[0]
+        assert hbox[0] == "HBox"
+        assert canvas is viz.canvas
+        assert output is viz.output
+        assert rendered == [True]
+        assert pose_updates == [True]
 
     def test_virtual_display_mousedown_moves_before_click(
         self, monkeypatch

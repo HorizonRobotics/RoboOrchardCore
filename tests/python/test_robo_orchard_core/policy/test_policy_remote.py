@@ -16,10 +16,16 @@
 from __future__ import annotations
 import os
 
+import pytest
 from dummy_policy import DummyPolicyConfig
 
 from robo_orchard_core.policy.remote import RemotePolicyConfig
-from robo_orchard_core.utils.ray import RayRemoteClassConfig
+from robo_orchard_core.utils.ray import (
+    RayActorDiedError,
+    RayActorNotAliveError,
+    RayRemoteClassConfig,
+    is_ray_actor_alive,
+)
 
 
 class TestRemotePolicy:
@@ -48,8 +54,37 @@ class TestRemotePolicy:
             ),
         )
         remote = a.__call__()
-        # assert remote.reset() == "reset", (), {}
-        reset_ret = remote.reset()
-        assert reset_ret[0] == "reset"
-        call_ret = remote("obs")
-        assert call_ret[0] == "act"
+        try:
+            # assert remote.reset() == "reset", (), {}
+            reset_ret = remote.reset()
+            assert reset_ret[0] == "reset"
+            call_ret = remote("obs")
+            assert call_ret[0] == "act"
+        finally:
+            remote.close()
+
+    def test_close_terminates_remote_actor(self):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        cfg = DummyPolicyConfig().as_remote(
+            remote_class_config=RayRemoteClassConfig(
+                num_cpus=0.01,
+                num_gpus=0,
+                memory=16 * 1024**2,
+                runtime_env={
+                    "env_vars": {
+                        "PYTHONPATH": current_dir,
+                    },
+                },
+            ),
+        )
+        remote = cfg()
+        actor_handle = remote.remote
+
+        remote.close()
+
+        with pytest.raises(RayActorDiedError):
+            is_ray_actor_alive(actor_handle, timeout=1)
+        with pytest.raises(RayActorNotAliveError):
+            remote.reset()
+        assert remote._remote is None
+        assert remote._remote_checked is False

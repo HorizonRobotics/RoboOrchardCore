@@ -119,10 +119,11 @@ class Timer(object):
 
     def _stop(self, name: str) -> None:
         self._end = perf_counter()
-        if self._unit == "ms" or (self._unit == "auto" and self.elapse < 1000):
-            self._log(f"cost {self.elapse * 1000:.3f} ms", name=name)
+        elapsed = self.elapse
+        if self._unit == "ms" or (self._unit == "auto" and elapsed < 1):
+            self._log(f"cost {elapsed * 1000:.3f} ms", name=name)
         else:
-            self._log(f"cost {self.elapse:.3f} s", name=name)
+            self._log(f"cost {elapsed:.3f} s", name=name)
 
     def __enter__(self):
         self._start(self._name or "timer")

@@ -18,16 +18,13 @@ import math
 import traceback
 import warnings
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 
 from robo_orchard_core.datatypes.geometry import BatchPose6D
 from robo_orchard_core.utils.math.coord_convention import CoordAxis
 from robo_orchard_core.viz.cam import CameraMixin, CameraMoveMixin
-
-if TYPE_CHECKING:
-    from IPython.display import display
 
 try:
     import ipywidgets as widgets
@@ -196,6 +193,8 @@ class IpyFPVCameraViz(BaseIpyViz, CameraMoveMixin, CameraMixin):
 
         This function should only be called in Jupyter notebook.
         """
+        from IPython.display import display
+
         display(
             widgets.HBox([self._description, self._camera_info_box]),
             self.canvas,

@@ -222,3 +222,23 @@ class RayRemoteInstance(Generic[T]):
             )
         self._remote_checked = True
         return self._remote
+
+    def close(self, remote_close_method: str | None = None):
+        """Release the managed Ray actor instance."""
+        if not hasattr(self, "_remote") or self._remote is None:
+            return
+
+        remote = self._remote
+        if remote_close_method is not None:
+            try:
+                ray.get(getattr(remote, remote_close_method).remote())
+            except Exception:
+                pass
+
+        try:
+            ray.kill(remote)
+        except Exception:
+            pass
+
+        self._remote = None  # type: ignore
+        self._remote_checked = False

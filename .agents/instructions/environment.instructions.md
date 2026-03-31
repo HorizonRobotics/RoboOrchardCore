@@ -6,7 +6,21 @@ description: Load these instructions when tasks depend on the active Python envi
 
 ## Environment
 
-- Use the active environment unless the task requires a change.
+- Unless the user explicitly specifies another environment, if this
+  repository is opened inside a containing workspace whose root contains
+  `.venv/`, use that shared workspace-root environment first for
+  Python-related commands.
+- Otherwise, if this repository root contains `.venv/`, use that
+  environment.
+- If no project-local `.venv/` is available at either level, fall back to
+  the active environment.
+- If task requirements or confirmed runtime dependencies require a
+  different environment, state that reason before switching.
+- Prefer explicit executables from the selected virtual environment over
+  relying on shell activation persistence across commands.
+- When using a shared workspace-root `.venv/`, use that environment's
+  explicit `bin/python` and `bin/pip` paths instead of assuming a
+  submodule-local `.venv/` exists.
 - Do not assume optional extras, developer tools, or external services are installed.
 - Check environment-dependent requirements before running related validation.
 

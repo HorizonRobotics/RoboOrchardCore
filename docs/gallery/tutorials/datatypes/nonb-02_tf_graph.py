@@ -48,8 +48,8 @@ from robo_orchard_core.datatypes.tf_graph import BatchFrameTransformGraph
 # Let's model a simple robotic arm with the following structure:
 # world -> robot_base -> arm_link -> gripper
 
-# 1. World to Robot Base: The robot's base is at (1, 0.5, 0) in the world.
-world_to_base_tf = BatchFrameTransform(
+# 1. Robot Base in World: The robot's base is at (1, 0.5, 0) in the world.
+robot_base_in_world_tf = BatchFrameTransform(
     parent_frame_id="world",
     child_frame_id="robot_base",
     xyz=torch.tensor([[1.0, 0.5, 0.0]]),
@@ -62,7 +62,7 @@ angle_z_90 = np.pi / 2
 quat_z_90 = torch.tensor(
     [[np.cos(angle_z_90 / 2), 0, 0, np.sin(angle_z_90 / 2)]]
 )
-base_to_arm_tf = BatchFrameTransform(
+arm_link_in_robot_base_tf = BatchFrameTransform(
     parent_frame_id="robot_base",
     child_frame_id="arm_link",
     xyz=torch.tensor([[0.0, 0.0, 0.5]]),  # Move 0.5m up along base's Z
@@ -71,7 +71,7 @@ base_to_arm_tf = BatchFrameTransform(
 
 # 3. Arm Link to Gripper: The gripper is 1m away from the arm link's origin,
 #    along the arm's new X-axis.
-arm_to_gripper_tf = BatchFrameTransform(
+gripper_in_arm_link_tf = BatchFrameTransform(
     parent_frame_id="arm_link",
     child_frame_id="gripper",
     xyz=torch.tensor([[1.0, 0, 0]]),  # 1m forward in the arm's frame
@@ -87,7 +87,11 @@ arm_to_gripper_tf = BatchFrameTransform(
 # that understands how all these frames are connected.
 
 # Create the graph from our list of transformations
-tf_list = [world_to_base_tf, base_to_arm_tf, arm_to_gripper_tf]
+tf_list = [
+    robot_base_in_world_tf,
+    arm_link_in_robot_base_tf,
+    gripper_in_arm_link_tf,
+]
 tf_graph = BatchFrameTransformGraph(tf_list=tf_list)
 
 print(
@@ -106,22 +110,25 @@ print(
 #
 # Let's find the gripper's pose directly in the world frame.
 
-# The graph will compute this by chaining: gripper -> arm_link -> robot_base -> world
-world_to_gripper_tf = tf_graph.get_tf(
+# The graph will compute this by chaining: gripper | arm_link, arm_link |
+# robot_base, robot_base | world.
+gripper_in_world_tf = tf_graph.get_tf(
     parent_frame_id="world", child_frame_id="gripper"
 )
 
 print("Gripper pose in world frame (queried from graph):")
-print(f"  Position (XYZ): {world_to_gripper_tf.xyz.numpy().round(3)}")
-print(f"  Orientation (Quat): {world_to_gripper_tf.quat.numpy().round(3)}")
+print(f"  Position (XYZ): {gripper_in_world_tf.xyz.numpy().round(3)}")
+print(
+    f"  Orientation (Quat): {gripper_in_world_tf.quat.numpy().round(3)}"
+)
 
 # The graph also automatically stores and provides inverse transforms.
 # Let's ask the opposite: where is the world origin as seen from the gripper?
-gripper_to_world_tf = tf_graph.get_tf(
+world_in_gripper_tf = tf_graph.get_tf(
     parent_frame_id="gripper", child_frame_id="world"
 )
 print("World origin pose in gripper frame (inverse query):")
-print(f"  Position (XYZ): {gripper_to_world_tf.xyz.numpy().round(3)}")
+print(f"  Position (XYZ): {world_in_gripper_tf.xyz.numpy().round(3)}")
 
 # %%
 # Visualizing the Entire Frame Network
@@ -180,8 +187,8 @@ plot_frame(ax, BatchTransform3D.identity(1), "world")
 for frame_id in tf_graph.nodes:
     if frame_id != "world":
         # Query the transform from 'world' to the current frame
-        world_to_frame_tf = tf_graph.get_tf("world", frame_id)
-        plot_frame(ax, world_to_frame_tf, frame_id)
+        frame_in_world_tf = tf_graph.get_tf("world", frame_id)
+        plot_frame(ax, frame_in_world_tf, frame_id)
 
 ax.set_xlabel("World X-axis")
 ax.set_ylabel("World Y-axis")

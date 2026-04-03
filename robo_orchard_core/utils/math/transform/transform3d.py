@@ -337,8 +337,8 @@ class Transform3D_M:
     def compose(self, *others: Transform3D_M) -> Transform3D_M:
         """Return a new Transform3D_M representing the composition of self with the given other transforms, which will be stored as an internal list.
 
-        The new transform will apply current transform first, and then the others
-        in the order they are given. In matrix form:
+        The new transform applies `self` first, and then the transforms in
+        `others` in order. In matrix form:
 
         A.compose(B, C).matrix == C.matrix @ B.matrix @ A.matrix
 
@@ -360,9 +360,9 @@ class Transform3D_M:
     def __matmul__(self, other: Transform3D_M) -> Transform3D_M:
         """Overload the @ operator to compose two Transform3D_M objects.
 
-        Different from the compose() method, this method follows the
-        mathematical convention of matrix multiplication order. The
-        following should be the same:
+        Different from `compose()`, this method follows matrix multiplication
+        order, so the right operand is applied first. The following lines are
+        equivalent:
 
         .. code-block:: python
 

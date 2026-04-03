@@ -83,7 +83,9 @@ print(f"Batch size: {transform_a.batch_size}")
 #     to its origin.
 #
 # * **Compose**: Chains two transforms together to create a single equivalent
-#     transform. If C = A.compose(B), applying C is the same as applying A then B.
+#     transform. If `C = A.compose(B)`, then `C` applies `A` first and `B`
+#     second. The same composition can be written with matrix-order notation as
+#     `C = B @ A`.
 
 # Calculate the inverse of Transform A
 transform_a_inv = transform_a.inverse()

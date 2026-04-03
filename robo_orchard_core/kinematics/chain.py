@@ -106,7 +106,7 @@ class Frame(_Frame):
     def get_transform(
         self, joint_positions: torch.Tensor | BatchJointsState
     ) -> Transform3D_M:
-        """Get the transform of this joint w.r.t. the parent frame.
+        """Get the pose of this joint frame expressed in the parent frame.
 
         Note:
             The transform is computed based on the joint, not the link!
@@ -156,7 +156,7 @@ class Frame(_Frame):
         parent_link_name: str,
         timestamps: list[int] | None = None,
     ) -> BatchFrameTransform:
-        """Get the transform of this frame w.r.t. the parent link frame.
+        """Get the pose of this frame expressed in the parent link frame.
 
         Args:
             joint_positions (torch.Tensor|BatchJointsState): The joint
@@ -172,7 +172,7 @@ class Frame(_Frame):
                 element. If None, timestamps will be set to None.
 
         Returns:
-            BatchFrameTransform: The transform of this frame w.r.t. the
+            BatchFrameTransform: The pose of this frame expressed in the
                 parent link frame.
         """
         timestamps = _get_timestamps(timestamps, joint_positions)
@@ -329,7 +329,7 @@ class KinematicChain:
         """Compute forward kinematics and return as BatchFrameTransform.
 
         The forward kinematics is computed as the pose of each frame in
-        the chain w.r.t. the root frame.
+        the chain expressed in the root frame.
 
         Note:
             This method assumes the frames are defined in MJCF style, where
@@ -389,7 +389,7 @@ class KinematicChain:
         """Compute forward kinematics for the chain.
 
         The forward kinematics is computed as the pose of each frame in
-        the chain w.r.t. the root frame.
+        the chain expressed in the root frame.
 
         Note:
             This method assumes the frames are defined in MJCF style, where

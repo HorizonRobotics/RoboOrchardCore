@@ -238,8 +238,12 @@ class BatchTransform3D(DataClass, TensorToMixin):
     def compose(self, *others: Self) -> Self:
         """Compose transformations with other transformations.
 
-        The transformations are applied in the order they are passed.
-        The following two lines are equivalent:
+        The resulting transform applies `self` first and then each transform
+        in `others` in order. In matrix form, the rightmost matrix is applied
+        first, so `A.compose(B, C)` stores the same transform as
+        `C.matrix @ B.matrix @ A.matrix`.
+
+        The following lines are equivalent:
 
         .. code-block:: python
 
@@ -248,11 +252,10 @@ class BatchTransform3D(DataClass, TensorToMixin):
             t = BatchFrameTransform.cls_compose(t1, t2, t3)
 
         Args:
-            other (Self): The other batch of transformations.
+            *others (Self): Additional transformations applied after `self`.
 
         Returns:
-            Self: A new object with the
-                composed transformations.
+            Self: A new object with the composed transformations.
         """
 
         all_others = (self,) + others
@@ -261,9 +264,9 @@ class BatchTransform3D(DataClass, TensorToMixin):
     def __matmul__(self, other: Self) -> Self:
         """Overload the @ operator to compose two BatchTransform3D objects.
 
-        Different from the compose() method, this method follows the
-        mathematical convention of matrix multiplication order. The
-        following should be the same:
+        Different from `compose()`, this method follows matrix multiplication
+        order, so the right operand is applied first. The following lines are
+        equivalent:
 
         .. code-block:: python
 
@@ -548,12 +551,15 @@ class BatchPose(BatchTransform3D):
 class BatchFrameTransform(BatchTransform3D):
     """A batch of transformations between two coordinate frames in 3D space.
 
-    A transformation must specify the parent and child frames it connects,
-    and all sample should share the same parent and child frames.
+    Each sample stores the pose of `child_frame_id` expressed in
+    `parent_frame_id`. A short notation used throughout the codebase is
+    `child | parent`.
 
-    The transform can also be interpreted as transformation matrix of
-    child frame to/w.r.t. parent frame.
+    Example:
+        `eef | world` means the end-effector pose expressed in the world
+        frame.
 
+    All samples in the batch must share the same parent and child frames.
     """
 
     parent_frame_id: str
@@ -609,15 +615,18 @@ class BatchFrameTransform(BatchTransform3D):
     def cls_compose(cls, *others):
         """Compose BatchFrameTransform chains.
 
-        The transformations are applied in the order they are passed.
-        The following two lines are equivalent:
+        Each transform is interpreted as `child | parent`. The transforms must
+        therefore form a continuous chain in the order they are passed. For
+        example, `(eef | camera).compose(camera | world)` yields `eef | world`.
+
+        The following lines are equivalent:
         .. code-block:: python
 
             t = BatchFrameTransform.cls_compose(t1, t2, t3)
             t = BatchFrameTransform.cls_compose(t1, t2).compose(t3)
 
-        The chain must be continuous from child to parent frame, which
-        means the child_frame_id of the next transform must match the
+        The chain must be continuous, which means the child_frame_id of the
+        next transform must match the
         parent_frame_id of the previous transform.
         """
         assert len(others) > 1
@@ -629,7 +638,8 @@ class BatchFrameTransform(BatchTransform3D):
                     "does not match the previous parent frame ID: "
                     f"{cur_parent_frame_id}. "
                     "The compose method for BatchFrameTransform requires "
-                    "chain from child to parent frame."
+                    "a continuous chain where each transform is expressed in "
+                    "the parent frame of the previous one."
                 )
             cur_parent_frame_id = other.parent_frame_id
 
@@ -658,15 +668,17 @@ class BatchFrameTransform(BatchTransform3D):
     def compose(self, *others: Self) -> Self:
         """Compose BatchFrameTransform chains.
 
-        The transformations are applied in the order they are passed.
-        The following two lines are equivalent:
+        Each transform is interpreted as `child | parent`. The transforms must
+        therefore form a continuous chain in the order they are passed.
+
+        The following lines are equivalent:
         .. code-block:: python
 
             t = t1.compose(t2, t3)
             t = t1.compose(t2).compose(t3)
 
-        The chain must be continuous from child to parent frame, which
-        means the child_frame_id of the next transform must match the
+        The chain must be continuous, which means the child_frame_id of the
+        next transform must match the
         parent_frame_id of the previous transform.
         """
         all_others = (self,) + others

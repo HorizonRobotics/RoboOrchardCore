@@ -1218,24 +1218,28 @@ def frame_transform_combine(
     Frame transform rotates the coordinate frame while keeping the vector
     or point fixed.
 
-    It performs the following transformation operation:
-    :math:`T_{02} = T_{01} \times T_{12}`, where :math:`T_{AB}` is the
-    homogeneous transformation matrix from frame A to B.
+    Throughout this function, :math:`T_{01}` denotes the pose of frame 1
+    expressed in frame 0, and :math:`T_{12}` denotes the pose of frame 2
+    expressed in frame 1.
 
+    The composition rule is:
+    :math:`T_{02} = T_{01} \times T_{12}`.
 
     Args:
-        t01: The translation of frame 1 w.r.t. frame 0, of shape (..., 3).
-        q01: The rotation of frame 1 w.r.t. frame 0, of shape (..., 4).
-        t12: The translation 2 w.r.t. frame 1.
+        t01: Translation of the origin of frame 1 expressed in frame 0, of
+            shape (..., 3).
+        q01: Quaternion orientation of frame 1 expressed in frame 0, of
+            shape (..., 4).
+        t12: Translation of the origin of frame 2 expressed in frame 1.
             Defaults to None, in which case it is set to zeros.
-        q12: The rotation 2 w.r.t. frame 1.
+        q12: Quaternion orientation of frame 2 expressed in frame 1.
             Defaults to None, in which case it is set to zeros.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The combined translation and
-            rotation of frame 2 w.r.t. frame 0. The translation is of
-            shape (..., 3) and the rotation is of shape (..., 4). The return
-            order is (t02, q02).
+        Tuple[torch.Tensor, torch.Tensor]: Translation and quaternion of the
+            pose of frame 2 expressed in frame 0. The translation is of shape
+            (..., 3) and the rotation is of shape (..., 4). The return order
+            is (t02, q02).
 
     """
     if t12 is None:
@@ -1259,23 +1263,28 @@ def frame_transform_subtract(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     r"""Subtract two frame transformations of coordinates.
 
-    It performs the following transformation operation:
-    :math:`T_{12} = T_{01}^{-1} \times T_{02}`, where :math:`T_{AB}` is the
-    homogeneous transformation matrix of frame B w.r.t. A.
+    Throughout this function, :math:`T_{01}` denotes the pose of frame 1
+    expressed in frame 0, and :math:`T_{02}` denotes the pose of frame 2
+    expressed in frame 0.
 
+    The subtraction rule is:
+    :math:`T_{12} = T_{01}^{-1} \times T_{02}`.
 
     Args:
-        t01: The translation of frame 1 w.r.t. frame 0, of shape (..., 3).
-        q01: The rotation of frame 1 w.r.t. frame 0, of shape (..., 4).
-        t02: The translation frame 2 w.r.t. frame 0.
+        t01: Translation of the origin of frame 1 expressed in frame 0, of
+            shape (..., 3).
+        q01: Quaternion orientation of frame 1 expressed in frame 0, of
+            shape (..., 4).
+        t02: Translation of the origin of frame 2 expressed in frame 0.
             Defaults to None, in which case it is set to identity.
-        q02: The rotation frame 2 w.r.t. frame 0.
+        q02: Quaternion orientation of frame 2 expressed in frame 0.
             Defaults to None, in which case it is set to identity.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The combined translation and rotation
-            of frame 2 w.r.t. frame 1. The translation is of shape (..., 3) and the
-            rotation is of shape (..., 4). The return order is (t12, q12).
+        Tuple[torch.Tensor, torch.Tensor]: Translation and quaternion of the
+            pose of frame 2 expressed in frame 1. The translation is of shape
+            (..., 3) and the rotation is of shape (..., 4). The return order
+            is (t12, q12).
 
     """  # noqa: E501
     if t02 is None:

@@ -421,12 +421,13 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
 
         Note:
             - If compose is True, it returns a single BatchFrameTransform
-              object representing the composed transformation from parent
-              frame to child frame. The returned BatchFrameTransform may
-              be shared from graph and not copied.
+              object representing the pose of `child_frame_id` expressed in
+              `parent_frame_id`. The returned BatchFrameTransform may be
+              shared from graph and not copied.
             - If compose is False, it returns a list of BatchFrameTransform
-              objects representing the path from child tf to parent tf. The
-              BatchFrameTransform is shared from graph and not copied.
+              objects ordered so composing the returned list yields the same
+              pose. The BatchFrameTransform objects are shared from graph and
+              not copied.
             - If no path exists, it returns None.
 
         Args:
@@ -437,9 +438,8 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             BatchFrameTransform | list[BatchFrameTransform] | None: The
             transformation between the two frames. If compose is True, it
             returns a single BatchFrameTransform object. If compose is False,
-            it returns a list of BatchFrameTransform objects representing the
-            path from child tf to parent tf. If no path exists,
-            it returns None.
+            it returns a list of BatchFrameTransform objects in compose order.
+            If no path exists, it returns None.
         """
         if (
             parent_frame_id not in self.nodes
@@ -447,25 +447,27 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
         ):
             return None
 
-        path = self.get_path_by_bfs(
+        transform_chain = self.get_path_by_bfs(
             src_node_id=parent_frame_id, dst_node_id=child_frame_id
         )
-        if path is None:
+        if transform_chain is None:
             return None
-        assert len(path) > 0, "Path should not be empty."
+        assert len(transform_chain) > 0, "Path should not be empty."
 
-        if len(path) > 1:
-            # The original path is the chain from parent tf to child tf.
-            # we need to reverse it to get the correct order.
-            path.reverse()
+        if len(transform_chain) > 1:
+            # The BFS result starts at the requested parent frame and ends at
+            # the requested child frame. Reverse it so the list is ordered as
+            # `child | ...`, `... | ...`, ..., `... | parent`, which is the
+            # order expected by BatchFrameTransform.compose().
+            transform_chain.reverse()
 
         if compose:
-            if len(path) == 1:
-                return path[0]
+            if len(transform_chain) == 1:
+                return transform_chain[0]
             else:
-                return path[0].compose(*path[1:])
+                return transform_chain[0].compose(*transform_chain[1:])
         else:
-            return path
+            return transform_chain
 
     def as_state(self) -> BatchFrameTransformGraphState:
         edges: list[BatchFrameTransform] = []

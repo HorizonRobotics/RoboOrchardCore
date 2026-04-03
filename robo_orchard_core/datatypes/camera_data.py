@@ -196,21 +196,22 @@ class BatchCameraInfo(DataClass, TensorToMixin):
     pose: BatchFrameTransform | None = None
     """Frame transform of the camera sensor.
 
-    Usually the frame transform are camera frame w.r.t. the world frame,
-    or known as the cam2World transformation, they are the same.
+    This field stores the pose of the camera frame expressed in its parent
+    frame, usually `world`. In `BatchFrameTransform` notation, this is
+    `camera | world`.
 
-    The inverse of the pose transformation is the extrinsic matrix
-    (world w.r.t cam), which are widely used in computer vision.
+    The inverse pose `world | camera` is the extrinsic matrix commonly used
+    in computer vision.
     """
 
     @property
     def extrinsics(self) -> TorchTensor | None:
         """Get the extrinsic matrix of the cameras.
 
-        Pose6D describes the transformation from the camera frame to the
-        world frame, while the extrinsic matrix describes the transformation
-        from the world frame to the camera frame, which is the inverse of
-        the pose transformation (cam w.r.t world).
+        `pose` stores `camera | world`, namely the pose of the camera frame
+        expressed in the world frame. The extrinsic matrix is the inverse pose
+        `world | camera`, which is the convention commonly used in computer
+        vision projection code.
 
         The extrinsic matrix is a Bx4x4 matrix:
 

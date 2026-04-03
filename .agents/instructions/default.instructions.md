@@ -16,6 +16,8 @@ description: Load these baseline instructions for any task in this repository.
 - Prefer concise, minimally fragmented helper functions. Merge nearby
 	single-purpose helpers when it keeps the main flow clear, and avoid
 	introducing extra helpers unless they improve readability or reuse.
+- Inline single-call helpers that only rename or forward one operation when
+	they do not create a meaningful semantic boundary.
 - If documentation conflicts with code, treat the code as the source of
 	truth unless the task says otherwise.
 

@@ -197,21 +197,19 @@ class BatchCameraInfo(DataClass, TensorToMixin):
     """Frame transform of the camera sensor.
 
     This field stores the pose of the camera frame expressed in its parent
-    frame, usually `world`. In `BatchFrameTransform` notation, this is
-    `camera | world`.
+    frame, usually `world`. In `BatchFrameTransform(child=A, parent=B)`
+    notation, this is `BatchFrameTransform(child="camera", parent="world")`.
 
-    The inverse pose `world | camera` is the extrinsic matrix commonly used
-    in computer vision.
+    The inverse pose is the extrinsic matrix commonly used in computer vision.
     """
 
     @property
     def extrinsics(self) -> TorchTensor | None:
         """Get the extrinsic matrix of the cameras.
 
-        `pose` stores `camera | world`, namely the pose of the camera frame
-        expressed in the world frame. The extrinsic matrix is the inverse pose
-        `world | camera`, which is the convention commonly used in computer
-        vision projection code.
+        `pose` stores the camera frame pose expressed in the world frame. The
+        extrinsic matrix is the inverse pose, which is the convention commonly
+        used in computer vision projection code.
 
         The extrinsic matrix is a Bx4x4 matrix:
 

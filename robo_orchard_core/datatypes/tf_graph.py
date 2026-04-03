@@ -456,9 +456,9 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
 
         if len(transform_chain) > 1:
             # The BFS result starts at the requested parent frame and ends at
-            # the requested child frame. Reverse it so the list is ordered as
-            # `child | ...`, `... | ...`, ..., `... | parent`, which is the
-            # order expected by BatchFrameTransform.compose().
+            # the requested child frame. Reverse it so the list is ordered
+            # from child frame to parent frame, which is the order expected
+            # by BatchFrameTransform.compose().
             transform_chain.reverse()
 
         if compose:

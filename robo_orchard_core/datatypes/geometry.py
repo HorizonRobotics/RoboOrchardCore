@@ -552,12 +552,13 @@ class BatchFrameTransform(BatchTransform3D):
     """A batch of transformations between two coordinate frames in 3D space.
 
     Each sample stores the pose of `child_frame_id` expressed in
-    `parent_frame_id`. A short notation used throughout the codebase is
-    `child | parent`.
+    `parent_frame_id`. The explicit field pair
+    ``BatchFrameTransform(child=A, parent=B)`` is the preferred way to read
+    and write this relation.
 
     Example:
-        `eef | world` means the end-effector pose expressed in the world
-        frame.
+        ``BatchFrameTransform(child="eef", parent="world")`` means the
+        end-effector pose expressed in the world frame.
 
     All samples in the batch must share the same parent and child frames.
     """
@@ -615,9 +616,12 @@ class BatchFrameTransform(BatchTransform3D):
     def cls_compose(cls, *others):
         """Compose BatchFrameTransform chains.
 
-        Each transform is interpreted as `child | parent`. The transforms must
-        therefore form a continuous chain in the order they are passed. For
-        example, `(eef | camera).compose(camera | world)` yields `eef | world`.
+        Each transform is interpreted as a child frame pose expressed in its
+        parent frame. The transforms must therefore form a continuous chain in
+        the order they are passed. For example,
+        ``BatchFrameTransform(child="eef", parent="camera").compose(
+        BatchFrameTransform(child="camera", parent="world"))`` yields a
+        transform for ``child="eef"`` expressed in ``parent="world"``.
 
         The following lines are equivalent:
         .. code-block:: python
@@ -668,8 +672,9 @@ class BatchFrameTransform(BatchTransform3D):
     def compose(self, *others: Self) -> Self:
         """Compose BatchFrameTransform chains.
 
-        Each transform is interpreted as `child | parent`. The transforms must
-        therefore form a continuous chain in the order they are passed.
+        Each transform is interpreted as a child frame pose expressed in its
+        parent frame. The transforms must therefore form a continuous chain in
+        the order they are passed.
 
         The following lines are equivalent:
         .. code-block:: python

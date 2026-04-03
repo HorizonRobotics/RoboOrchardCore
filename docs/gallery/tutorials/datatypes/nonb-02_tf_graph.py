@@ -104,14 +104,14 @@ print(
 # Querying the Graph for Any Transformation
 # -----------------------------------------
 # The graph's most powerful feature is its ability to answer the question:
-# "What is the transformation from any frame A to any frame B?"
+# "What transform relates any source frame to any target frame?"
 # It automatically finds the shortest path in the network and composes all the
 # intermediate transforms.
 #
 # Let's find the gripper's pose directly in the world frame.
 
-# The graph will compute this by chaining: gripper | arm_link, arm_link |
-# robot_base, robot_base | world.
+# The graph will compute this by chaining:
+# gripper_in_arm_link_tf, arm_link_in_robot_base_tf, robot_base_in_world_tf.
 gripper_in_world_tf = tf_graph.get_tf(
     parent_frame_id="world", child_frame_id="gripper"
 )

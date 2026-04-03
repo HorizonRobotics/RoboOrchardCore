@@ -42,7 +42,7 @@ rosbag2*
 
 ## tmp & debug
 dummy/
-**/.agents/tmp/
+**/.agents/temp/
 
 ## executable
 *.exe

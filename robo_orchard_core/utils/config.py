@@ -425,7 +425,28 @@ class Config(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         protected_namespaces=(),
+        extra="forbid",
     )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Allow only private runtime-only attributes after construction.
+
+        Config construction and validation remain strict via
+        ``extra="forbid"``. After instantiation, some call sites attach
+        ephemeral private attributes for runtime bookkeeping; keep allowing
+        those without treating them as model fields.
+        """
+        if (
+            name in type(self).model_fields
+            or name.startswith("_")
+            or name in getattr(self, "__dict__", {})
+            or hasattr(type(self), name)
+        ):
+            super().__setattr__(name, value)
+            return
+        raise ValueError(
+            f'"{type(self).__name__}" object has no field "{name}"'
+        )
 
     @model_serializer(mode="wrap", return_type=dict, when_used="always")
     def wrapped_model_ser(
@@ -678,6 +699,13 @@ class Config(BaseModel):
         return self.model_copy()
 
     def replace(self, **kwargs) -> Self:
+        unknown_field_names = set(kwargs).difference(type(self).model_fields)
+        if unknown_field_names:
+            field_names_str = ", ".join(sorted(unknown_field_names))
+            raise ValueError(
+                f"Unknown field(s) for {type(self).__name__}: "
+                f"{field_names_str}."
+            )
         return self.model_copy(update=kwargs)
 
     def content_equal(self, other: Self) -> bool:

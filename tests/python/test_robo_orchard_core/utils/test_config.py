@@ -20,6 +20,7 @@ import functools
 import numpy as np
 import pytest
 import torch
+from pydantic import ValidationError
 
 from robo_orchard_core.utils.config import (
     CallableConfig,
@@ -116,6 +117,32 @@ class TestSimpleConfig:
         assert config.int_value == 100
         config.int_value = 200
         assert config.int_value == 200
+
+    def test_constructor_rejects_unknown_fields(self):
+        with pytest.raises(ValidationError, match="unknown_value"):
+            DummyConfig.model_validate({"unknown_value": 1})
+
+    def test_private_dynamic_attribute_assignment_is_allowed(self):
+        config = DummyConfig()
+        private_name = "_runtime_only_value"
+
+        setattr(config, private_name, 123)
+
+        assert getattr(config, private_name) == 123
+        assert config.to_dict() == {"int_value": 100}
+
+    def test_public_dynamic_attribute_assignment_is_rejected(self):
+        config = DummyConfig()
+        public_name = "runtime_only_value"
+
+        with pytest.raises(ValueError, match="object has no field"):
+            setattr(config, public_name, 123)
+
+    def test_replace_rejects_unknown_fields(self):
+        config = DummyConfig()
+
+        with pytest.raises(ValueError, match="unknown_value"):
+            config.replace(unknown_value=1)
 
     def test_json_dump(self):
         config = DummyConfig()

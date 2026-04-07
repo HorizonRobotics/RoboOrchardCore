@@ -129,6 +129,14 @@ class BatchTransform3D(DataClass, TensorToMixin):
     def trans(self) -> torch.Tensor:
         return self.xyz
 
+    @property
+    def device(self) -> torch.device:
+        return self.xyz.device
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self.xyz.dtype
+
     def __post_init__(self):
         # check batch size equal
         if self.xyz.dim() == 1:
@@ -702,21 +710,23 @@ class BatchFrameTransform(BatchTransform3D):
             frame_id=self.parent_frame_id,
         )
 
-    def inverse(self) -> Self:
+    def inverse(self) -> BatchFrameTransform:
         """Get the inverse of the transformations.
 
         Note that this method will reverse the parent and child frame IDs.
 
         Returns:
-            Self: A new object with the inverse transformations.
+            BatchFrameTransform: A new object with the inverse transform.
         """
         p = BatchTransform3D(
             xyz=self.xyz, quat=self.quat, timestamps=self.timestamps
         ).inverse()
-        return type(self)(
+        return BatchFrameTransform(
+            xyz=p.xyz,
+            quat=p.quat,
+            timestamps=p.timestamps,
             parent_frame_id=self.child_frame_id,
             child_frame_id=self.parent_frame_id,
-            **p.__dict__,
         )
 
     @classmethod

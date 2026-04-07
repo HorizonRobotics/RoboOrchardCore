@@ -110,6 +110,24 @@ class BatchJointsState(DataClass, TensorToMixin):
             )
         return cur_tensor.shape[0]
 
+    @property
+    def device(self) -> torch.device:
+        cur_tensor = self.__find_any_tensor()
+        if cur_tensor is None:
+            raise ValueError(
+                "At least one of position, velocity, or effort must be set."
+            )
+        return cur_tensor.device
+
+    @property
+    def dtype(self) -> torch.dtype:
+        cur_tensor = self.__find_any_tensor()
+        if cur_tensor is None:
+            raise ValueError(
+                "At least one of position, velocity, or effort must be set."
+            )
+        return cur_tensor.dtype
+
     def check_shape(self):
         def find_tensor() -> tuple[torch.Tensor | None, str]:
             if self.position is not None:

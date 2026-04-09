@@ -1,6 +1,10 @@
-# Architecture Draft
+---
+orphan: true
+---
 
-This document is a working draft for the high-level architecture of
+# Architecture Overview
+
+This document provides a high-level architecture overview of
 `robo_orchard_core`. It describes the intended layering, the current package
 map, and the design constraints that help keep the repository maintainable as
 it grows.
@@ -490,7 +494,7 @@ architecture aligned:
 
 ## Non-Goals
 
-This architecture draft does not require an immediate package rename or a large
-directory migration. The main goal is to clarify the intended design direction
-so incremental changes move the repository toward cleaner boundaries instead of
-away from them.
+This architecture overview does not require an immediate package rename or a
+large directory migration. The main goal is to clarify the intended design
+direction so incremental changes move the repository toward cleaner boundaries
+instead of away from them.

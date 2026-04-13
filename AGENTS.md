@@ -20,6 +20,8 @@ Repository skills live in `.agents/skills/`.
 ### Quick Routing
 
 - Python implementation changes: `.agents/instructions/python.instructions.md`
+- Architecture review, layering, abstraction seams, or public API surface design:
+  `.agents/references/architecture-review-guideline.md`
 - License header requirements and template: `.agents/references/license-header-guideline.md`
 - Test creation, updates, or validation: `.agents/instructions/test.instructions.md`
 - Validation scope and developer workflow decisions: `.agents/instructions/workflow.instructions.md`
@@ -32,8 +34,12 @@ Repository skills live in `.agents/skills/`.
 
 - When a task matches a skill, read the relevant `.agents/skills/*/SKILL.md` file before proceeding.
 - Current top-level skills:
-  - `.agents/skills/remote-codereview/SKILL.md`
+  - `.agents/skills/codereview/SKILL.md`
   - `.agents/skills/feature-dev/SKILL.md`
+- `codereview` is split into finer-grained sub-skills under `.agents/skills/codereview/`:
+  - `changeset-codereview`
+  - `prmr-codereview`
+  - `architecture-review`
 
 ## Repository Notes
 

@@ -169,6 +169,13 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
     transforms, where each edge represents a transformation between two frames.
     The nodes are identified by their frame IDs.
 
+    The graph exposes an effective batch dimension. Each non-mirrored edge
+    must have batch size ``1`` or the graph effective batch size ``N``.
+    Batch-size-1 edges are treated as singleton edges that can broadcast
+    during transform composition and can be materialized explicitly with
+    :meth:`repeat_singleton_tfs`. Empty sliced graphs are represented with
+    batch size ``0``.
+
     Args:
         tf_list (list[BatchFrameTransform] | None): A list of
             BatchFrameTransform objects to initialize the graph with.
@@ -201,6 +208,7 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
         self._static_edges: dict[str, dict[str, bool]] = {}
 
         if tf_list is not None:
+            self._validate_tf_batch_contract(tf_list)
             self._add_tf(
                 tf_list, bidirectional=bidirectional, static_tf=static_tf
             )
@@ -209,6 +217,136 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
         return (
             f"BatchFrameTransformGraph(nodes={self.nodes.keys()}, "
             f"num_edges={sum(len(v) for v in self.edges.values())})"
+        )
+
+    @staticmethod
+    def _validate_tf_batch_contract(
+        tf_list: Sequence[BatchFrameTransform],
+    ) -> int:
+        """Validate the effective batch contract for non-mirrored edges.
+
+        Args:
+            tf_list (Sequence[BatchFrameTransform]): The non-mirrored edge
+                transforms to validate.
+
+        Returns:
+            int: The effective graph batch size.
+
+        Raises:
+            ValueError: If any edge batch size is incompatible with the graph
+                effective batch size.
+        """
+        if len(tf_list) == 0:
+            return 0
+
+        batch_sizes = [tf.batch_size for tf in tf_list]
+        effective_batch_size = max(batch_sizes)
+        allowed_batch_sizes = {effective_batch_size}
+        if effective_batch_size > 0:
+            allowed_batch_sizes.add(1)
+
+        invalid_batch_sizes = sorted(
+            {
+                batch_size
+                for batch_size in batch_sizes
+                if batch_size not in allowed_batch_sizes
+            }
+        )
+        if invalid_batch_sizes:
+            raise ValueError(
+                "All BatchFrameTransformGraph edges must have batch size 1 "
+                f"or {effective_batch_size}. Got invalid batch sizes "
+                f"{invalid_batch_sizes}."
+            )
+        return effective_batch_size
+
+    def _non_mirrored_tf_list(self) -> list[BatchFrameTransform]:
+        return self.as_state().tf_list
+
+    @property
+    def batch_size(self) -> int:
+        """Get the effective graph batch size.
+
+        Each non-mirrored edge must have batch size ``1`` or the returned
+        effective batch size ``N``. Empty graphs and empty slices return
+        batch size ``0``.
+
+        Returns:
+            int: The effective graph batch size.
+        """
+        return self._validate_tf_batch_contract(self._non_mirrored_tf_list())
+
+    @staticmethod
+    def _slice_batch_size(
+        idx: list[int] | slice | int, batch_size: int
+    ) -> int:
+        """Resolve the resulting batch size for a graph slice."""
+        batch_indices = list(range(batch_size))
+        if isinstance(idx, int):
+            _ = batch_indices[idx]
+            return 1
+        if isinstance(idx, slice):
+            return len(batch_indices[idx])
+        return len([batch_indices[i] for i in idx])
+
+    @staticmethod
+    def _repeat_singleton_tf(
+        tf: BatchFrameTransform, batch_size: int
+    ) -> BatchFrameTransform:
+        repeated_timestamps = None
+        if tf.timestamps is not None:
+            repeated_timestamps = tf.timestamps * batch_size
+        return tf.repeat(batch_size=batch_size, timestamps=repeated_timestamps)
+
+    def repeat_singleton_tfs(self, batch_size: int | None = None) -> Self:
+        """Repeat singleton non-mirrored edges to a target batch size.
+
+        Args:
+            batch_size (int | None, optional): The target batch size for
+                singleton edges. If None, use the graph effective batch size.
+                Defaults to None.
+
+        Returns:
+            Self: A new graph whose singleton non-mirrored edges are repeated
+            to ``batch_size``.
+
+        Raises:
+            ValueError: If ``batch_size`` is negative or incompatible with any
+                non-singleton edge already stored in the graph.
+        """
+        target_batch_size = (
+            self.batch_size if batch_size is None else batch_size
+        )
+        if target_batch_size < 0:
+            raise ValueError("batch_size must be non-negative.")
+
+        state = self.as_state()
+        repeated_tf_list = []
+        for tf in state.tf_list:
+            if tf.batch_size == 1:
+                if target_batch_size == 0:
+                    repeated_tf_list.append(tf[:0])
+                elif target_batch_size == 1:
+                    repeated_tf_list.append(tf)
+                else:
+                    repeated_tf_list.append(
+                        self._repeat_singleton_tf(
+                            tf, batch_size=target_batch_size
+                        )
+                    )
+            elif tf.batch_size == target_batch_size:
+                repeated_tf_list.append(tf)
+            else:
+                raise ValueError(
+                    "Cannot repeat singleton graph edges to batch size "
+                    f"{target_batch_size} because a non-singleton edge has "
+                    f"batch size {tf.batch_size}."
+                )
+
+        return type(self)(
+            tf_list=repeated_tf_list,
+            bidirectional=state.bidirectional,
+            static_tf=state.static_tf,
         )
 
     def is_mirrored_tf(
@@ -297,6 +435,10 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
 
         Args:
             tf (BatchFrameTransform): The BatchFrameTransform to update.
+
+        Raises:
+            ValueError: If the transform is static, mirrored-only, missing,
+                or would violate the graph batch contract.
         """
         old = self.edges.get(tf.parent_frame_id, {}).get(
             tf.child_frame_id, None
@@ -326,6 +468,16 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
                 f"Cannot update static BatchFrameTransform from "
                 f"{tf.parent_frame_id} to {tf.child_frame_id}."
             )
+        candidate_tf_list = []
+        for existing_tf in self._non_mirrored_tf_list():
+            if (
+                existing_tf.parent_frame_id == tf.parent_frame_id
+                and existing_tf.child_frame_id == tf.child_frame_id
+            ):
+                candidate_tf_list.append(tf)
+            else:
+                candidate_tf_list.append(existing_tf)
+        self._validate_tf_batch_contract(candidate_tf_list)
         # update the edge
         self.edges[tf.parent_frame_id][tf.child_frame_id] = tf
         # update the mirrored edge if it exists
@@ -359,12 +511,19 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             static_tf (list[bool] | None): A list of booleans indicating
                 whether each BatchFrameTransform is static. If None, all
                 transforms are considered non-static. Defaults to None.
+
+        Raises:
+            ValueError: If the added transforms would violate the graph batch
+                contract.
         """
 
         if static_tf is not None and len(static_tf) != len(tf_list):
             raise ValueError(
                 "static_tf and tf_list must have the same length."
             )
+        self._validate_tf_batch_contract(
+            [*self._non_mirrored_tf_list(), *tf_list]
+        )
         static_tf = static_tf or [False] * len(tf_list)
         for tf, is_static in zip(tf_list, static_tf, strict=True):
             if tf.parent_frame_id is None:
@@ -401,6 +560,10 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
                 booleans indicating whether each BatchFrameTransform is static.
                 If None, all transforms are considered non-static. Defaults
                 to None.
+
+        Raises:
+            ValueError: If the added transforms would violate the graph batch
+                contract.
         """
 
         if isinstance(tf, BatchFrameTransform):
@@ -468,6 +631,40 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
                 return transform_chain[0].compose(*transform_chain[1:])
         else:
             return transform_chain
+
+    def __getitem__(self, idx: list[int] | slice | int) -> Self:
+        """Slice all graph edges along the effective graph batch dimension.
+
+        Edges whose batch size already matches the effective graph batch size
+        are sliced directly. Singleton edges with batch size ``1`` are kept as
+        singleton edges for non-empty selections and can be materialized later
+        with :meth:`repeat_singleton_tfs`. Empty slices return empty edges with
+        batch size ``0``.
+
+        Args:
+            idx: Batch index selection applied to every non-mirrored edge in
+                the graph. Integer indexing keeps the batch dimension,
+                matching ``BatchFrameTransform.__getitem__`` semantics.
+
+        Returns:
+            Self: A new graph whose edge transforms are sliced by ``idx``.
+        """
+        state = self.as_state()
+        graph_batch_size = self.batch_size
+        sliced_batch_size = self._slice_batch_size(idx, graph_batch_size)
+        sliced_tf_list = []
+        for tf in state.tf_list:
+            if tf.batch_size == graph_batch_size:
+                sliced_tf_list.append(tf[idx])
+            elif sliced_batch_size == 0:
+                sliced_tf_list.append(tf[:0])
+            else:
+                sliced_tf_list.append(tf)
+        return type(self)(
+            tf_list=sliced_tf_list,
+            bidirectional=state.bidirectional,
+            static_tf=state.static_tf,
+        )
 
     def as_state(self) -> BatchFrameTransformGraphState:
         edges: list[BatchFrameTransform] = []

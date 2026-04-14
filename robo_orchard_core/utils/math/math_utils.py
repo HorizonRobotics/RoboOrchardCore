@@ -232,6 +232,48 @@ def quaternion_standardize(quaternions: torch.Tensor) -> torch.Tensor:
     return torch.where(quaternions[..., 0:1] < 0, -quaternions, quaternions)
 
 
+def ensure_quaternion_sequence_continuous(
+    quaternions: torch.Tensor,
+) -> torch.Tensor:
+    """Keep a quaternion sequence in one continuous hemisphere.
+
+    Quaternions have a double-cover property, so ``q`` and ``-q`` encode the
+    same rotation. This helper standardizes the first quaternion to have a
+    non-negative real component and then flips later frames when needed so each
+    frame stays in the same hemisphere as the previous frame.
+
+    Args:
+        quaternions (torch.Tensor): Quaternion tensor in ``(w, x, y, z)``
+            order with shape ``(N, 4)``.
+
+    Returns:
+        torch.Tensor: A cloned quaternion tensor with the same shape and a
+            continuous sign convention across the sequence.
+    """
+    if quaternions.ndim != 2 or quaternions.shape[-1] != 4:
+        raise ValueError(
+            "Expected quaternions to have shape (N, 4), got "
+            f"{tuple(quaternions.shape)}."
+        )
+    if quaternions.shape[0] == 0:
+        raise ValueError("Expected at least one quaternion frame.")
+
+    continuous_quaternions = quaternions.clone()
+    continuous_quaternions[0] = quaternion_standardize(
+        continuous_quaternions[0:1]
+    )[0]
+    for idx in range(1, continuous_quaternions.shape[0]):
+        if (
+            torch.dot(
+                continuous_quaternions[idx],
+                continuous_quaternions[idx - 1],
+            )
+            < 0
+        ):
+            continuous_quaternions[idx] = -continuous_quaternions[idx]
+    return continuous_quaternions
+
+
 @torch_jit_compile
 def quaternion_raw_multiply(
     a: torch.Tensor, b: torch.Tensor, batch_mode: bool = False

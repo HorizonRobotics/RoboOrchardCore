@@ -96,6 +96,31 @@ def apply_delta_pose(
 
 
 class TestQuaternion:
+    def test_ensure_quaternion_sequence_continuous(self):
+        q = torch.tensor(
+            [
+                [-1.0, 0.0, 0.0, 0.0],
+                [-0.9238795, 0.3826834, 0.0, 0.0],
+                [0.9238795, -0.3826834, 0.0, 0.0],
+            ],
+            dtype=torch.float32,
+        )
+
+        continuous_q = math_utils.ensure_quaternion_sequence_continuous(q)
+
+        assert torch.allclose(
+            continuous_q,
+            torch.tensor(
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.9238795, -0.3826834, 0.0, 0.0],
+                    [0.9238795, -0.3826834, 0.0, 0.0],
+                ],
+                dtype=torch.float32,
+            ),
+            atol=1e-6,
+        )
+
     def test_quaternion_consistency_scipy(self):
         q = math_utils.normalize(torch.rand(size=(1000, 4)) - 0.5, dim=-1)
         q = math_utils.quaternion_standardize(q)

@@ -13,11 +13,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
-from typing import Any
+from typing import Any, cast
 
 import ray
 import torch
-from ray.actor import ActorProxy
+from ray.actor import ActorHandle
 from ray.exceptions import GetTimeoutError, RayActorError
 from typing_extensions import Generic, TypeVar
 
@@ -173,7 +173,7 @@ class RayRemoteInstance(Generic[T]):
     remote_cls: Any
     """The Ray remote class."""
 
-    _remote: ActorProxy[T]
+    _remote: ActorHandle[T]
     """The Ray remote actor instance."""
 
     def __init__(self, cfg: RayRemoteInstanceConfig, **kwargs):
@@ -187,11 +187,11 @@ class RayRemoteInstance(Generic[T]):
         self.remote_cls = remote_cls
 
         remote = remote_cls.remote(self.cfg.instance_config, **kwargs)  # type: ignore
-        self._remote: ActorProxy[T] = remote
+        self._remote = cast(ActorHandle[T], remote)
         self._remote_checked = False
 
     @property
-    def remote(self) -> ActorProxy[T]:
+    def remote(self) -> ActorHandle[T]:
         """Get the Ray remote actor instance.
 
         Raises:

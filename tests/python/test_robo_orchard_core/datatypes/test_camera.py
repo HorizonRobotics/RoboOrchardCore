@@ -152,11 +152,30 @@ class TestBatchCameraData:
             intrinsic_matrices=(
                 torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1)
             ),
+            distortion=Distortion(
+                model="plumb_bob",
+                coefficients=torch.tensor(
+                    [[0.1, 0.01, 0.001, 0.0001]] * 2,
+                    dtype=torch.float32,
+                ),
+            ),
         )
-        data.to(dtype=torch.float64)
+        aligned_data = data.to(dtype=torch.float64)
+
+        assert aligned_data is not data
         assert data.sensor_data.dtype == torch.uint8
         assert data.intrinsic_matrices is not None
-        assert data.intrinsic_matrices.dtype == torch.float64
+        assert data.intrinsic_matrices.dtype == torch.float32
+        assert data.distortion is not None
+        assert data.distortion.coefficients is not None
+        assert data.distortion.coefficients.dtype == torch.float32
+
+        assert aligned_data.sensor_data.dtype == torch.uint8
+        assert aligned_data.intrinsic_matrices is not None
+        assert aligned_data.intrinsic_matrices.dtype == torch.float64
+        assert aligned_data.distortion is not None
+        assert aligned_data.distortion.coefficients is not None
+        assert aligned_data.distortion.coefficients.dtype == torch.float64
 
         data = BatchCameraData(
             sensor_data=torch.randint(
@@ -170,12 +189,45 @@ class TestBatchCameraData:
                 torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1)
             ),
         )
-        data.to(
+        aligned_data = data.to(
             dtype=torch.float64, dtype_exclude_fields=["intrinsic_matrices"]
         )
+
+        assert aligned_data is data
         assert data.sensor_data.dtype == torch.uint8
         assert data.intrinsic_matrices is not None
         assert data.intrinsic_matrices.dtype == torch.float32
+
+    def test_to_inplace_true_mutates_self(self):
+        data = BatchCameraData(
+            sensor_data=torch.randint(
+                low=0,
+                high=255,
+                size=(2, 6, 5, 3),
+                dtype=torch.uint8,
+            ),
+            pix_fmt=ImageMode.RGB,
+            intrinsic_matrices=(
+                torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1)
+            ),
+            distortion=Distortion(
+                model="plumb_bob",
+                coefficients=torch.tensor(
+                    [[0.1, 0.01, 0.001, 0.0001]] * 2,
+                    dtype=torch.float32,
+                ),
+            ),
+        )
+
+        aligned_data = data.to(dtype=torch.float64, inplace=True)
+
+        assert aligned_data is data
+        assert data.sensor_data.dtype == torch.uint8
+        assert data.intrinsic_matrices is not None
+        assert data.intrinsic_matrices.dtype == torch.float64
+        assert data.distortion is not None
+        assert data.distortion.coefficients is not None
+        assert data.distortion.coefficients.dtype == torch.float64
 
     def test_encoded_getitem_supports_int_slice_and_list(self):
         encoded = BatchCameraDataEncoded(
@@ -199,6 +251,33 @@ class TestBatchCameraData:
         encoded_list = encoded[[2, 0]]
         assert encoded_list.sensor_data == [b"c", b"a"]
         assert encoded_list.timestamps == [103, 101]
+
+    def test_encode_decode_roundtrip_preserves_shared_fields(self):
+        data = BatchCameraData(
+            sensor_data=torch.randint(
+                low=0,
+                high=255,
+                size=(2, 6, 5, 3),
+                dtype=torch.uint8,
+            ),
+            pix_fmt=ImageMode.RGB,
+            intrinsic_matrices=(
+                torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1)
+            ),
+            frame_id="camera",
+            timestamps=[11, 22],
+        )
+
+        encoded = data.encode(format="png")
+        decoded = encoded.decode()
+
+        assert encoded.frame_id == data.frame_id
+        assert encoded.timestamps == data.timestamps
+        assert decoded.frame_id == data.frame_id
+        assert decoded.timestamps == data.timestamps
+        assert decoded.intrinsic_matrices is not None
+        assert data.intrinsic_matrices is not None
+        assert torch.equal(decoded.intrinsic_matrices, data.intrinsic_matrices)
 
 
 class TestBatchCameraInfo:

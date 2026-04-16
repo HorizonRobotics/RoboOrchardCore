@@ -25,6 +25,196 @@ from robo_orchard_core.utils.math import math_utils
 
 
 class TestBatchFrameTransformGraph:
+    @pytest.mark.parametrize(
+        "device",
+        [
+            pytest.param("cpu"),
+            pytest.param(
+                "cuda:0",
+                marks=pytest.mark.skipif(
+                    not torch.cuda.is_available(),
+                    reason="CUDA NOT AVAILABLE",
+                ),
+            ),
+        ],
+    )
+    def test_to(self, device):
+        dynamic_tf = BatchFrameTransform(
+            xyz=torch.tensor(
+                [[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]],
+                dtype=torch.float64,
+            ),
+            quat=torch.tensor(
+                [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                dtype=torch.float64,
+            ),
+            parent_frame_id="1",
+            child_frame_id="2",
+        )
+        singleton_tf = BatchFrameTransform(
+            xyz=torch.tensor([[6.0, 7.0, 8.0]], dtype=torch.float64),
+            quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float64),
+            parent_frame_id="0",
+            child_frame_id="1",
+        )
+        tf_g = BatchFrameTransformGraph(
+            tf_list=[dynamic_tf, singleton_tf],
+            bidirectional=True,
+            static_tf=[False, True],
+        )
+
+        original_direct_tf = tf_g.get_tf("1", "2")
+        original_mirrored_tf = tf_g.get_tf("2", "1")
+        assert isinstance(original_direct_tf, BatchFrameTransform)
+        assert isinstance(original_mirrored_tf, BatchFrameTransform)
+
+        aligned_tf_g = tf_g.to(device=device, dtype=torch.float32)
+
+        assert aligned_tf_g is not tf_g
+        assert tf_g.is_static_tf("0", "1")
+        assert aligned_tf_g.is_static_tf("0", "1")
+
+        aligned_direct_tf = aligned_tf_g.get_tf("1", "2")
+        aligned_singleton_tf = aligned_tf_g.get_tf("0", "1")
+        aligned_mirrored_tf = aligned_tf_g.get_tf("2", "1")
+        assert isinstance(aligned_direct_tf, BatchFrameTransform)
+        assert isinstance(aligned_singleton_tf, BatchFrameTransform)
+        assert isinstance(aligned_mirrored_tf, BatchFrameTransform)
+
+        target_device = torch.device(device)
+        assert aligned_direct_tf.xyz.dtype == torch.float32
+        assert aligned_singleton_tf.xyz.dtype == torch.float32
+        assert aligned_mirrored_tf.xyz.dtype == torch.float32
+        assert aligned_direct_tf.xyz.device == target_device
+        assert aligned_singleton_tf.xyz.device == target_device
+        assert aligned_mirrored_tf.xyz.device == target_device
+        assert aligned_singleton_tf.batch_size == 1
+        assert aligned_mirrored_tf == aligned_direct_tf.inverse()
+
+        assert tf_g.get_tf("1", "2") is original_direct_tf
+        assert tf_g.get_tf("2", "1") is original_mirrored_tf
+        assert original_direct_tf.xyz.dtype == torch.float64
+        assert original_mirrored_tf.xyz.dtype == torch.float64
+        assert tf_g.get_tf("1", "2") is not aligned_direct_tf
+
+    def test_to_noop_returns_self(self):
+        dynamic_tf = BatchFrameTransform(
+            xyz=torch.tensor(
+                [[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]],
+                dtype=torch.float64,
+            ),
+            quat=torch.tensor(
+                [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                dtype=torch.float64,
+            ),
+            parent_frame_id="1",
+            child_frame_id="2",
+        )
+        tf_g = BatchFrameTransformGraph(
+            tf_list=[dynamic_tf],
+            bidirectional=True,
+        )
+
+        original_direct_tf = tf_g.get_tf("1", "2")
+        aligned_tf_g = tf_g.to(
+            device=dynamic_tf.xyz.device,
+            dtype=torch.float64,
+        )
+
+        assert aligned_tf_g is tf_g
+        assert tf_g.get_tf("1", "2") is original_direct_tf
+
+    def test_to_reuses_unchanged_direct_edges(self):
+        changed_tf = BatchFrameTransform(
+            xyz=torch.tensor(
+                [[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]],
+                dtype=torch.float64,
+            ),
+            quat=torch.tensor(
+                [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                dtype=torch.float64,
+            ),
+            parent_frame_id="1",
+            child_frame_id="2",
+        )
+        unchanged_tf = BatchFrameTransform(
+            xyz=torch.tensor([[6.0, 7.0, 8.0]], dtype=torch.float32),
+            quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float32),
+            parent_frame_id="0",
+            child_frame_id="1",
+        )
+        tf_g = BatchFrameTransformGraph(
+            tf_list=[changed_tf, unchanged_tf],
+            bidirectional=True,
+            static_tf=[False, True],
+        )
+
+        original_changed_tf = tf_g.get_tf("1", "2")
+        original_unchanged_tf = tf_g.get_tf("0", "1")
+        assert isinstance(original_changed_tf, BatchFrameTransform)
+        assert isinstance(original_unchanged_tf, BatchFrameTransform)
+
+        aligned_tf_g = tf_g.to(dtype=torch.float32)
+
+        aligned_changed_tf = aligned_tf_g.get_tf("1", "2")
+        aligned_unchanged_tf = aligned_tf_g.get_tf("0", "1")
+        assert isinstance(aligned_changed_tf, BatchFrameTransform)
+        assert isinstance(aligned_unchanged_tf, BatchFrameTransform)
+
+        assert aligned_tf_g is not tf_g
+        assert aligned_changed_tf is not original_changed_tf
+        assert aligned_unchanged_tf is original_unchanged_tf
+        assert aligned_changed_tf.xyz.dtype == torch.float32
+        assert aligned_unchanged_tf.xyz.dtype == torch.float32
+        assert original_changed_tf.xyz.dtype == torch.float64
+
+    def test_to_inplace_true(self):
+        dynamic_tf = BatchFrameTransform(
+            xyz=torch.tensor(
+                [[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]],
+                dtype=torch.float64,
+            ),
+            quat=torch.tensor(
+                [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                dtype=torch.float64,
+            ),
+            parent_frame_id="1",
+            child_frame_id="2",
+        )
+        singleton_tf = BatchFrameTransform(
+            xyz=torch.tensor([[6.0, 7.0, 8.0]], dtype=torch.float64),
+            quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float64),
+            parent_frame_id="0",
+            child_frame_id="1",
+        )
+        tf_g = BatchFrameTransformGraph(
+            tf_list=[dynamic_tf, singleton_tf],
+            bidirectional=True,
+            static_tf=[False, True],
+        )
+
+        original_direct_tf = tf_g.get_tf("1", "2")
+        original_mirrored_tf = tf_g.get_tf("2", "1")
+        assert isinstance(original_direct_tf, BatchFrameTransform)
+        assert isinstance(original_mirrored_tf, BatchFrameTransform)
+
+        aligned_tf_g = tf_g.to(dtype=torch.float32, inplace=True)
+
+        assert aligned_tf_g is tf_g
+
+        aligned_direct_tf = tf_g.get_tf("1", "2")
+        aligned_mirrored_tf = tf_g.get_tf("2", "1")
+        assert isinstance(aligned_direct_tf, BatchFrameTransform)
+        assert isinstance(aligned_mirrored_tf, BatchFrameTransform)
+
+        assert aligned_direct_tf is not original_direct_tf
+        assert aligned_mirrored_tf is not original_mirrored_tf
+        assert aligned_direct_tf.xyz.dtype == torch.float32
+        assert aligned_mirrored_tf.xyz.dtype == torch.float32
+        assert original_direct_tf.xyz.dtype == torch.float64
+        assert original_mirrored_tf.xyz.dtype == torch.float64
+        assert aligned_mirrored_tf == aligned_direct_tf.inverse()
+
     def test_getitem(self):
         device = "cpu"
         q = math_utils.normalize(

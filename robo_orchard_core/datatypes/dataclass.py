@@ -16,6 +16,7 @@
 
 """Base data class and mixin."""
 
+import copy
 from typing import Any
 
 import numpy as np
@@ -148,6 +149,19 @@ class DataClass(BaseModel):
         """
         self.__post_init__()
 
+    def _tensor_to_field_items(self) -> list[tuple[str, Any]]:
+        """Return mutable field items for :meth:`TensorToMixin.to`."""
+        return [
+            (field_name, getattr(self, field_name))
+            for field_name in type(self).model_fields
+        ]
+
+    def _tensor_to_copy_with_updates(
+        self, updated_fields: dict[str, Any]
+    ) -> Self:
+        """Build a shallow updated copy for :meth:`TensorToMixin.to`."""
+        return self.model_copy(update=updated_fields, deep=False)
+
     def __eq__(self, other: Any) -> bool:
         # use the default equality method first.
         try:
@@ -193,17 +207,44 @@ class DataClass(BaseModel):
 
 
 class TensorToMixin:
+    def _tensor_to_field_items(self) -> list[tuple[str, Any]]:
+        """Return attribute items that :meth:`to` should traverse.
+
+        Classes with non-field attributes, caches, or framework-specific
+        storage can override this hook to expose only the mutable payload that
+        should participate in backend alignment.
+        """
+        try:
+            return list(vars(self).items())
+        except TypeError as exc:
+            raise TypeError(
+                f"{type(self).__name__}.to() requires either __dict__-backed "
+                "attributes or a custom _tensor_to_field_items() override."
+            ) from exc
+
+    def _tensor_to_copy_with_updates(
+        self, updated_fields: dict[str, Any]
+    ) -> Self:
+        """Build a shallow updated copy for :meth:`to`."""
+        copied_self = copy.copy(self)
+        for field_name, updated_value in updated_fields.items():
+            setattr(copied_self, field_name, updated_value)
+        return copied_self
+
     def to(
         self,
         device: Device | None = None,
         dtype: torch.dtype | None = None,
         non_blocking: bool = False,
         dtype_exclude_fields: list[str] | None = None,
+        inplace: bool = False,
     ) -> Self:
         """Move or cast the tensors/modules in the data class.
 
-        This method performs in-place conversion of all tensors and modules
-        in the data class to the specified device and dtype.
+        By default this method returns a new aligned object when a backend
+        change is required and returns ``self`` on a no-op request. Passing
+        ``inplace=True`` preserves the container identity and writes the
+        converted field values back onto ``self``.
 
         Args:
             device (Device|None, optional): The target device to move the
@@ -216,35 +257,45 @@ class TensorToMixin:
             dtype_exclude_fields (list[str] | None, optional): A list of
                 field names to exclude from dtype conversion. If None, all
                 fields will be converted.
+            inplace (bool, optional): If True, preserve the current container
+                identity and assign converted field values back onto
+                ``self``. Defaults to False.
+
+        Returns:
+            Self: The aligned data object.
         """
 
         device = make_device(device) if device is not None else None
-        for k, obj in self.__dict__.items():
+        updated_fields: dict[str, Any] = {}
+        any_changed = False
+        for k, obj in self._tensor_to_field_items():
             if dtype_exclude_fields is not None and k in dtype_exclude_fields:
-                setattr(
-                    self,
-                    k,
-                    apply_to(
-                        obj,
-                        device=device,
-                        dtype=None,
-                        non_blocking=non_blocking,
-                    ),
+                updated_obj, changed = apply_to(
+                    obj,
+                    device=device,
+                    dtype=None,
+                    non_blocking=non_blocking,
                 )
-
             else:
-                setattr(
-                    self,
-                    k,
-                    apply_to(
-                        obj,
-                        device=device,
-                        dtype=dtype,
-                        non_blocking=non_blocking,
-                    ),
+                updated_obj, changed = apply_to(
+                    obj,
+                    device=device,
+                    dtype=dtype,
+                    non_blocking=non_blocking,
                 )
 
-        return self
+            updated_fields[k] = updated_obj
+            any_changed = any_changed or changed
+
+        if not any_changed:
+            return self
+
+        if inplace:
+            for k, updated_obj in updated_fields.items():
+                setattr(self, k, updated_obj)
+            return self
+
+        return self._tensor_to_copy_with_updates(updated_fields)
 
 
 def tensor_equal(
@@ -286,40 +337,106 @@ def np2torch(src: np.ndarray | list | dict | torch.Tensor) -> Any:
         return src
 
 
-def apply_to(obj, device, dtype, non_blocking):
+def _tensor_requires_to(
+    tensor: torch.Tensor,
+    device: torch.device | None,
+    dtype: torch.dtype | None,
+) -> bool:
+    return (device is not None and tensor.device != device) or (
+        dtype is not None and tensor.dtype != dtype
+    )
+
+
+def _module_requires_to(
+    module: torch.nn.Module,
+    device: torch.device | None,
+    dtype: torch.dtype | None,
+) -> bool:
+    if device is None and dtype is None:
+        return False
+
+    tensors = [*module.parameters(), *module.buffers()]
+    return any(
+        _tensor_requires_to(tensor, device=device, dtype=dtype)
+        for tensor in tensors
+    )
+
+
+def apply_to(
+    obj: Any,
+    device: torch.device | None,
+    dtype: torch.dtype | None,
+    non_blocking: bool,
+) -> tuple[Any, bool]:
     if isinstance(obj, torch.Tensor):
-        return obj.to(device=device, dtype=dtype, non_blocking=non_blocking)
-    elif isinstance(obj, torch.nn.Module):
-        return obj.to(device=device, dtype=dtype, non_blocking=non_blocking)
-    elif isinstance(obj, list):
-        return [
-            apply_to(
-                item,
-                device=device,
-                dtype=dtype,
-                non_blocking=non_blocking,
-            )
-            for item in obj
-        ]
-    elif isinstance(obj, tuple):
-        return tuple(
-            apply_to(
-                item,
-                device=device,
-                dtype=dtype,
-                non_blocking=non_blocking,
-            )
-            for item in obj
+        if not _tensor_requires_to(obj, device=device, dtype=dtype):
+            return obj, False
+        return (
+            obj.to(device=device, dtype=dtype, non_blocking=non_blocking),
+            True,
         )
+    elif isinstance(obj, torch.nn.Module):
+        if not _module_requires_to(obj, device=device, dtype=dtype):
+            return obj, False
+        aligned_module = copy.deepcopy(obj)
+        aligned_module.to(
+            device=device,
+            dtype=dtype,
+            non_blocking=non_blocking,
+        )
+        return aligned_module, True
+    elif isinstance(obj, TensorToMixin):
+        aligned_obj = obj.to(
+            device=device,
+            dtype=dtype,
+            non_blocking=non_blocking,
+            inplace=False,
+        )
+        return aligned_obj, aligned_obj is not obj
+    elif isinstance(obj, list):
+        updated_list = []
+        any_changed = False
+        for item in obj:
+            updated_item, changed = apply_to(
+                item,
+                device=device,
+                dtype=dtype,
+                non_blocking=non_blocking,
+            )
+            updated_list.append(updated_item)
+            any_changed = any_changed or changed
+        if not any_changed:
+            return obj, False
+        return updated_list, True
+    elif isinstance(obj, tuple):
+        updated_items = []
+        any_changed = False
+        for item in obj:
+            updated_item, changed = apply_to(
+                item,
+                device=device,
+                dtype=dtype,
+                non_blocking=non_blocking,
+            )
+            updated_items.append(updated_item)
+            any_changed = any_changed or changed
+        if not any_changed:
+            return obj, False
+        return tuple(updated_items), True
     elif isinstance(obj, dict):
-        return {
-            k: apply_to(
+        updated_dict = {}
+        any_changed = False
+        for k, v in obj.items():
+            updated_value, changed = apply_to(
                 v,
                 device=device,
                 dtype=dtype,
                 non_blocking=non_blocking,
             )
-            for k, v in obj.items()
-        }
+            updated_dict[k] = updated_value
+            any_changed = any_changed or changed
+        if not any_changed:
+            return obj, False
+        return updated_dict, True
     else:
-        return obj
+        return obj, False

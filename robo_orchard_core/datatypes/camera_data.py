@@ -27,8 +27,6 @@ from typing_extensions import Self
 from robo_orchard_core.datatypes.dataclass import (
     DataClass,
     TensorToMixin,
-    apply_to,
-    make_device,
 )
 from robo_orchard_core.datatypes.enum import StrEnum
 from robo_orchard_core.datatypes.geometry import (
@@ -979,11 +977,9 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         dtype: torch.dtype | None = None,
         non_blocking: bool = False,
         dtype_exclude_fields: list[str] | None = None,
+        inplace: bool = False,
     ) -> Self:
         """Move the sensor data and relevant fields to the specified device and dtype.
-
-        This method performs in-place conversion of all tensors and modules
-        in the data class to the specified device and dtype.
 
         Note that the `sensor_data` field is not affected by the `dtype` argument, as
         `sensor_data` dtype is determined by pix_fmt.
@@ -999,38 +995,21 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
             dtype_exclude_fields (list[str] | None, optional): A list of
                 field names to exclude from dtype conversion. If None, all
                 fields will be converted.
+            inplace (bool, optional): If True, preserve the current container
+                identity and assign converted field values back onto
+                ``self``. Defaults to False.
         """  # noqa: E501
-        if dtype_exclude_fields is None:
-            dtype_exclude_fields = ["sensor_data"]
-        else:
-            dtype_exclude_fields.append("sensor_data")
-        device = make_device(device) if device is not None else None
-        for k, obj in self.__dict__.items():
-            if dtype_exclude_fields is not None and k in dtype_exclude_fields:
-                setattr(
-                    self,
-                    k,
-                    apply_to(
-                        obj,
-                        device=device,
-                        dtype=None,
-                        non_blocking=non_blocking,
-                    ),
-                )
+        excluded_fields = list(dtype_exclude_fields or [])
+        if "sensor_data" not in excluded_fields:
+            excluded_fields.append("sensor_data")
 
-            else:
-                setattr(
-                    self,
-                    k,
-                    apply_to(
-                        obj,
-                        device=device,
-                        dtype=dtype,
-                        non_blocking=non_blocking,
-                    ),
-                )
-
-        return self
+        return super().to(
+            device=device,
+            dtype=dtype,
+            non_blocking=non_blocking,
+            dtype_exclude_fields=excluded_fields,
+            inplace=inplace,
+        )
 
 
 class BatchCameraDataEncoded(BatchCameraInfo):

@@ -22,6 +22,7 @@ description: Load these instructions when working with git history, commit messa
 - In public-facing `Validation` text, keep commands repository-relative or
   generic, and strip local paths, machine-specific interpreter locations,
   usernames embedded in paths, proxy wrappers, and internal-only URLs.
+- Do **not** add `Co-authored-by:` trailers attributing AI tools (e.g. GitHub Copilot, ChatGPT, Claude) to commits, MR descriptions, or PR descriptions unless the user explicitly asks for them. This applies to both the commit message body and any web UI description fields.
 
 ## Branch Workflow
 

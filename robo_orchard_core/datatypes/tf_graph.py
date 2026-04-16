@@ -16,10 +16,12 @@
 
 from typing import Any, Generic, Sequence, TypeVar
 
+import torch
 from typing_extensions import Self
 
 from robo_orchard_core.datatypes.dataclass import DataClass
 from robo_orchard_core.datatypes.geometry import BatchFrameTransform
+from robo_orchard_core.utils.torch_utils import Device
 
 EDGE_TYPE = TypeVar("EDGE_TYPE")
 NODE_TYPE = TypeVar("NODE_TYPE")
@@ -345,6 +347,79 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
 
         return type(self)(
             tf_list=repeated_tf_list,
+            bidirectional=state.bidirectional,
+            static_tf=state.static_tf,
+        )
+
+    def to(
+        self,
+        device: Device | None = None,
+        dtype: torch.dtype | None = None,
+        non_blocking: bool = False,
+        inplace: bool = False,
+    ) -> Self:
+        """Align graph edges to the requested backend.
+
+        When backend conversion is required and ``inplace`` is False, the
+        returned graph rebuilds from aligned non-mirrored edges. Edges whose
+        backend stays unchanged are reused directly, while converted edges are
+        replaced with newly aligned objects.
+
+        Args:
+            device (Device | None, optional): Target device for graph edges.
+                If None, keep the current device. Defaults to None.
+            dtype (torch.dtype | None, optional): Target dtype for graph
+                edges. If None, keep the current dtype. Defaults to None.
+            non_blocking (bool, optional): Passed through to each edge's
+                ``to()`` call. Defaults to False.
+            inplace (bool, optional): If True, preserve the current graph
+                identity and replace its stored state with an aligned graph
+                rebuild. Defaults to False.
+
+        Returns:
+            Self: ``self`` when the request is a no-op or when
+            ``inplace=True``. Otherwise, a new graph whose non-mirrored
+            edges are aligned to the requested backend.
+        """
+        if inplace:
+            aligned_graph = self.to(
+                device=device,
+                dtype=dtype,
+                non_blocking=non_blocking,
+                inplace=False,
+            )
+            if aligned_graph is self:
+                return self
+
+            self.nodes = aligned_graph.nodes
+            self.edges = aligned_graph.edges
+            self._in_degree = aligned_graph._in_degree
+            self._bidirectional = aligned_graph._bidirectional
+            self._mirrored_edges = aligned_graph._mirrored_edges
+            self._static_edges = aligned_graph._static_edges
+            return self
+
+        if device is None and dtype is None:
+            return self
+
+        state = self.as_state()
+        aligned_tf_list: list[BatchFrameTransform] = []
+        any_changed = False
+        for tf in state.tf_list:
+            aligned_tf = tf.to(
+                device=device,
+                dtype=dtype,
+                non_blocking=non_blocking,
+                inplace=False,
+            )
+            aligned_tf_list.append(aligned_tf)
+            any_changed = any_changed or aligned_tf is not tf
+
+        if not any_changed:
+            return self
+
+        return type(self)(
+            tf_list=aligned_tf_list,
             bidirectional=state.bidirectional,
             static_tf=state.static_tf,
         )

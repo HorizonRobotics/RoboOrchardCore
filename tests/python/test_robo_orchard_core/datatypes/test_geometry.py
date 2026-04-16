@@ -31,6 +31,12 @@ class DummyTensorContainer(DataClass, TensorToMixin):
     tensor_b: torch.Tensor
 
 
+class PlainTensorContainer(TensorToMixin):
+    def __init__(self, tensor_a: torch.Tensor, tensor_b: torch.Tensor):
+        self.tensor_a = tensor_a
+        self.tensor_b = tensor_b
+
+
 class TestTensorToMixin:
     @pytest.mark.parametrize(
         "device",
@@ -76,12 +82,61 @@ class TestTensorToMixin:
         device_a = data.tensor_a.device
         device_b = data.tensor_b.device
 
-        data.to(dtype=torch.float64, dtype_exclude_fields=["tensor_b"])
+        aligned_data = data.to(
+            dtype=torch.float64, dtype_exclude_fields=["tensor_b"]
+        )
 
-        assert data.tensor_a.dtype == torch.float64
+        assert aligned_data is not data
+        assert data.tensor_a.dtype == torch.float32
         assert data.tensor_b.dtype == torch.float32
-        assert data.tensor_a.device == device_a
-        assert data.tensor_b.device == device_b
+
+        assert aligned_data.tensor_a.dtype == torch.float64
+        assert aligned_data.tensor_b.dtype == torch.float32
+        assert aligned_data.tensor_a.device == device_a
+        assert aligned_data.tensor_b.device == device_b
+
+    def test_tensor_to_mixin_noop_returns_self(self):
+        data = DummyTensorContainer(
+            tensor_a=torch.ones((2, 2), dtype=torch.float32),
+            tensor_b=torch.ones((2, 2), dtype=torch.float32),
+        )
+
+        same_data = data.to(
+            device=data.tensor_a.device,
+            dtype=data.tensor_a.dtype,
+        )
+
+        assert same_data is data
+
+    def test_tensor_to_mixin_inplace_true(self):
+        data = DummyTensorContainer(
+            tensor_a=torch.ones((2, 2), dtype=torch.float32),
+            tensor_b=torch.ones((2, 2), dtype=torch.float32),
+        )
+
+        aligned_data = data.to(dtype=torch.float64, inplace=True)
+
+        assert aligned_data is data
+        assert data.tensor_a.dtype == torch.float64
+        assert data.tensor_b.dtype == torch.float64
+
+    def test_tensor_to_mixin_supports_non_pydantic_class(self):
+        data = PlainTensorContainer(
+            tensor_a=torch.ones((2, 2), dtype=torch.float32),
+            tensor_b=torch.ones((2, 2), dtype=torch.float32),
+        )
+
+        aligned_data = data.to(
+            dtype=torch.float64,
+            dtype_exclude_fields=["tensor_b"],
+        )
+
+        assert isinstance(aligned_data, PlainTensorContainer)
+        assert aligned_data is not data
+        assert data.tensor_a.dtype == torch.float32
+        assert data.tensor_b.dtype == torch.float32
+        assert aligned_data.tensor_a.dtype == torch.float64
+        assert aligned_data.tensor_b.dtype == torch.float32
 
 
 class TestTransform3D:

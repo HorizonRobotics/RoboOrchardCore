@@ -11,27 +11,55 @@ description: Load these baseline instructions for any task in this repository.
 - Read the relevant code, call sites, and tests before editing.
 - For every newly created repository-owned source file, add the standard RoboOrchard Apache 2.0 license header at the top of the file using the comment style of that language.
 - Follow `.agents/references/license-header-guideline.md` for the canonical templates, default year rendering, placement, and checker alignment.
+- Keep shared abstractions limited to stable, reusable core semantics; keep
+  scenario-specific switches, branching, and naming constraints in layers
+  closer to the call boundary.
 - Exclude vendored or external-code directories from default code search unless the task explicitly targets them or requires cross-repository comparison.
 - Keep comments and docstrings aligned with the implementation.
+- When changing public behavior or observable contracts, update the related
+  docstrings, comments, and examples in the same change.
+- Do not leave known docstring or comment drift behind after code changes.
+- For public wrapper or adapter classes, the class docstring should state the
+  main public methods or properties and include a minimal usage example when
+  that improves discoverability.
+- For public methods with structured inputs or outputs, document the required
+  order, shape, and key conventions when they are not obvious from the type
+  signature alone.
 - This repository is published externally. In public-facing artifacts such as
-	docs, READMEs, examples, commit messages, and MR or PR descriptions, use
-	repository-relative paths or redacted placeholders instead of personal
-	local absolute paths, and do not include company-internal or other
-	non-public links.
-- For poses, frame transforms, and spatial matrices, prefer explicit direction-bearing names such as `a_to_b`, `a_to_b_tf`, `a_to_b_mat`, or `BatchFrameTransform(child=A, parent=B)`. In this repository, `BatchFrameTransform(child=A, parent=B)` and `a_to_b` share the same direction semantics. Do not assume compact forms such as `A|B`, `T_ab`, `T_a_b`, or `Tab` are acceptable default repository style without an explicit local mapping.
-- Treat the repository convention above as the default for code owned by this repository. For external libraries, third-party APIs, protocol fields, dataset schemas, or compatibility layers, follow the external convention at the boundary and add an explicit local mapping before translating to repository-preferred names.
+  docs, READMEs, examples, commit messages, and MR or PR descriptions, use
+  repository-relative paths or redacted placeholders instead of personal
+  local absolute paths, and do not include company-internal or other
+  non-public links.
+- For poses, frame transforms, and spatial matrices, follow
+  `.agents/references/spatial-transform-and-matrix-naming-guideline.md`.
 - Prefer concise, minimally fragmented helper functions. Merge nearby
-	single-purpose helpers when it keeps the main flow clear, and avoid
-	introducing extra helpers unless they improve readability or reuse.
+  single-purpose helpers when it keeps the main flow clear, and avoid
+  introducing extra helpers unless they improve readability or reuse.
 - Inline single-call helpers that only rename or forward one operation when
-	they do not create a meaningful semantic boundary.
+  they do not create a meaningful semantic boundary.
+- Preserve IDE discoverability and static refactor safety when compressing
+  call paths. Do not hide typed method names, parameter shapes, or public API
+  forwarding behind string-dispatch or generic `getattr(...)` helpers only to
+  reduce boilerplate; centralize only true shared boundary behavior.
+- For non-trivial implementation, write down the negative design constraints
+  before coding: do not add parallel abstractions, duplicate source-of-truth,
+  synonym public APIs, or compatibility logic in canonical paths unless the
+  task explicitly requires them.
+- After non-trivial implementation, run a simplification pass before
+  finalizing: remove single-use forwarding helpers, merge thin abstractions,
+  check for duplicate sources of truth, and keep compatibility paths out of
+  canonical execution paths.
 - If documentation conflicts with code, treat the code as the source of
-	truth unless the task says otherwise.
+  truth unless the task says otherwise.
 
 ## Scope and Safety
 
 - Stay within files and behavior directly related to the task.
 - Avoid unrelated refactors, renames, structural changes, and edits under `build/` unless required.
+- Do not add compatibility layers merely to preserve the current state of
+  uncommitted in-progress changes; prefer adjusting the in-flight code
+  together so the final interface and implementation stay simple and
+  consistent.
 - Call out risk before proposing or making breaking, destructive, or environment-dependent changes.
 - If a user request seems unsafe, destructive, irreversible, high-cost, privacy- or security-sensitive, or materially misaligned with the stated goal, explain the concern and ask for explicit confirmation before proceeding.
 - Do not assume external services, hardware, or network access are available.

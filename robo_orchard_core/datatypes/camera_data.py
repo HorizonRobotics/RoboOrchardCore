@@ -758,6 +758,75 @@ class BatchImageData(DataClass):
         ret.sensor_data = dst
         return ret
 
+    @torch.no_grad()
+    def resize2d(
+        self,
+        target_hw: tuple[int, int],
+        inter_mode: Literal[
+            "area", "nearest", "bilinear", "bicubic"
+        ] = "bilinear",
+    ) -> Self:
+        """Resize image data with OpenCV while preserving batch layout.
+
+        Args:
+            target_hw: Output image shape as ``(height, width)``.
+            inter_mode: OpenCV interpolation mode. Supported values are
+                ``"area"``, ``"nearest"``, ``"bilinear"``, and
+                ``"bicubic"``. Default is ``"bilinear"``.
+
+        Returns:
+            A shallow copy with resized ``sensor_data``.
+        """
+        import cv2
+
+        target_h, target_w = target_hw
+        if target_h <= 0 or target_w <= 0:
+            raise ValueError(
+                "target_hw must contain positive height and width, "
+                f"got {target_hw}."
+            )
+
+        cv_inter_mode = None
+        if inter_mode == "area":
+            cv_inter_mode = cv2.INTER_AREA
+        elif inter_mode == "bilinear":
+            cv_inter_mode = cv2.INTER_LINEAR
+        elif inter_mode == "nearest":
+            cv_inter_mode = cv2.INTER_NEAREST
+        elif inter_mode == "bicubic":
+            cv_inter_mode = cv2.INTER_CUBIC
+        else:
+            raise ValueError(
+                f"Unsupported interpolation mode: {inter_mode}. "
+                "Supported modes are: 'area', 'bilinear', 'nearest', "
+                "'bicubic'."
+            )
+
+        layout = guess_channel_layout(self.sensor_data)
+        if layout != ImageChannelLayout.HWC:
+            raise NotImplementedError(
+                "Only HWC channel layout is supported for resizing."
+            )
+
+        src = self.sensor_data
+        dst = torch.empty(
+            size=(src.shape[0], target_h, target_w, src.shape[-1]),
+            dtype=src.dtype,
+        )
+        for i in range(src.shape[0]):
+            resized = cv2.resize(
+                src[i].numpy(),
+                dsize=(target_w, target_h),
+                interpolation=cv_inter_mode,
+            )
+            if resized.ndim == 2:
+                resized = resized[..., None]
+            dst[i] = torch.asarray(resized)
+
+        ret = self.model_copy(deep=False)
+        ret.sensor_data = dst
+        return ret
+
     def as_pil_images(self) -> list[Image.Image]:
         """Convert BatchCameraData to a list of PIL images."""
         sensor_data = self.sensor_data
@@ -939,20 +1008,95 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         updated_dict["image_shape"] = target_hw  # type: ignore
         return self.model_copy(update=updated_dict, deep=False)  # type: ignore
 
+    @torch.no_grad()
+    def resize2d(
+        self,
+        target_hw: tuple[int, int],
+        inter_mode: Literal[
+            "area", "nearest", "bilinear", "bicubic"
+        ] = "bilinear",
+    ) -> Self:
+        """Resize image data and record the induced camera intrinsic scale.
+
+        The raw ``intrinsic_matrices`` are preserved. The resize scale is
+        composed into ``transform_matrices`` so callers that need the effective
+        camera matrix should use :meth:`get_intrinsic_with_transform`.
+
+        Args:
+            target_hw: Output image shape as ``(height, width)``.
+            inter_mode: OpenCV interpolation mode. Supported values are
+                ``"area"``, ``"nearest"``, ``"bilinear"``, and
+                ``"bicubic"``. Default is ``"bilinear"``.
+
+        Returns:
+            A shallow copy with resized image data and updated transform
+            metadata.
+        """
+        src_h, src_w = get_image_shape(self.sensor_data)
+        target_h, target_w = target_hw
+        if target_h <= 0 or target_w <= 0:
+            raise ValueError(
+                "target_hw must contain positive height and width, "
+                f"got {target_hw}."
+            )
+
+        if self.transform_matrices is not None:
+            ref_tensor = self.transform_matrices
+        elif self.intrinsic_matrices is not None:
+            ref_tensor = self.intrinsic_matrices
+        else:
+            ref_tensor = torch.empty((), dtype=torch.float32)
+
+        scale_mat = torch.eye(
+            3, dtype=ref_tensor.dtype, device=ref_tensor.device
+        ).unsqueeze(0)
+        scale_mat[:, 0, 0] = target_w / src_w
+        scale_mat[:, 1, 1] = target_h / src_h
+
+        transform_matrices = self.transform_matrices
+        if transform_matrices is None:
+            transform_matrices = torch.eye(
+                3, dtype=ref_tensor.dtype, device=ref_tensor.device
+            ).unsqueeze(0)
+        if (
+            transform_matrices.shape[0] != self.batch_size
+            and transform_matrices.shape[0] != 1
+        ):
+            raise ValueError(
+                "The transformation matrix must have the same batch size as "
+                "the camera data. "
+                f"Expected {self.batch_size}, got "
+                f"{transform_matrices.shape[0]}."
+            )
+        if transform_matrices.shape[0] == 1 and self.batch_size > 1:
+            transform_matrices = transform_matrices.repeat(
+                self.batch_size, 1, 1
+            )
+
+        updated_dict = dict(
+            BatchImageData.resize2d(
+                self,
+                target_hw=target_hw,
+                inter_mode=inter_mode,
+            ).__dict__
+        )
+        updated_dict["transform_matrices"] = scale_mat @ transform_matrices
+        updated_dict["image_shape"] = target_hw
+        return self.model_copy(update=updated_dict, deep=False)  # type: ignore
+
     def encode(
         self,
-        format: Literal["jpeg", "png"],
+        format: Literal["jpeg", "jpg", "png"],
         encoder: EncoderType | None = None,
     ) -> BatchCameraDataEncoded:
         """Encode the BatchCameraData to a BatchCameraDataEncoded.
 
         Args:
-            format (Literal["jpeg", "png"]): The target format to encode
+            format (Literal["jpeg", "jpg", "png"]): The target format to encode
                 the data.
             encoder (EncoderType | None, optional): The encoder
                 function to encode the data. It should take a tensor and
                 the format as input and return a list of byte strings.
-            format (Literal["jpeg", "png"]): The format to encode the data.
 
         Returns:
             BatchCameraDataEncoded: The encoded camera data.
@@ -1026,7 +1170,7 @@ class BatchCameraDataEncoded(BatchCameraInfo):
     sensor_data: list[bytes]
     """The sensor data in compressed bytes."""
 
-    format: Literal["jpeg", "png"]
+    format: Literal["jpeg", "jpg", "png"]
     """The format of the compressed sensor data."""
 
     timestamps: list[int] | None = None
@@ -1184,9 +1328,9 @@ def _default_decoder(
 
     import numpy as np
 
-    if format not in ["jpeg", "png"]:
+    if format not in ["jpeg", "jpg", "png"]:
         raise ValueError(
-            f"Unsupported format: {format}. Expected 'jpeg' or 'png'."
+            f"Unsupported format: {format}. Expected 'jpeg', 'jpg', or 'png'."
         )
 
     img_mode: ImageMode | None = None
@@ -1231,15 +1375,16 @@ def _default_encoder(
     """
     import io
 
-    if format not in ["jpeg", "png"]:
+    if format not in ["jpeg", "jpg", "png"]:
         raise ValueError(
-            f"Unsupported format: {format}. Expected 'jpeg' or 'png'."
+            f"Unsupported format: {format}. Expected 'jpeg', 'jpg', or 'png'."
         )
 
     pil_images = data.as_pil_images()
     compressed_data = []
     for img in pil_images:
         buf = io.BytesIO()
-        img.save(buf, format=format.upper())
+        pil_format = "JPEG" if format in ("jpeg", "jpg") else "PNG"
+        img.save(buf, format=pil_format)
         compressed_data.append(buf.getvalue())
     return compressed_data

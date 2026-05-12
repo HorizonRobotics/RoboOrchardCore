@@ -8,13 +8,26 @@ description: Load these instructions when working with git history, commit messa
 
 - Commit message format: `<type>(<scope>): <Description>.`
 - Allowed types: `feat`, `fix`, `bugfix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `scm`.
+- For commit, MR, and PR titles that use this format, keep the description
+  capitalized: the first character after `: ` must be uppercase.
 - Keep the scope short and the full title line within 128 characters.
 - Commit messages should use a multiline body after a blank line.
 - Use body sections `Summary`, `Why`, `Impact`, `Validation`, and `Risks / Notes`.
 - In `Impact`, cover user-visible behavior, API or config changes, and internal or workflow effects when relevant.
+- If the change intentionally alters behavior, compatibility, or workflow in a
+  way reviewers may question, call it out explicitly in `Risks / Notes`.
 - Prefer commit text that can be reused directly as the merge request or pull request description and final squash commit body.
 - Do not require local checkpoint commits to be squashed unless explicitly instructed.
-- Do not force-add ignored scratch files or temporary design notes such as `.agents/scratch/**` unless the user explicitly asks for a versioned snapshot. If the content should become durable project knowledge, move or distill it into a tracked location such as `docs/` instead.
+- Keep commits grouped by coherent topic. If multiple unrelated changes are
+  present and the user asked for a commit, ask whether to split, stage only
+  the requested scope, or include the extra work.
+- Do not silently bundle unrelated working-tree changes into a commit or
+  review update.
+- Do not force-add ignored scratch files or temporary design notes such as
+  `.agents/scratch/**` unless the user explicitly asks for a versioned
+  snapshot or the scratch file is an agreed task deliverable. If the content
+  should become durable project knowledge, move or distill it into a tracked
+  location such as `docs/` instead.
 - Apply the public-artifact rule from `default.instructions.md` to commit
   messages.
 - Apply the public-artifact rule from `default.instructions.md` to merge
@@ -22,7 +35,7 @@ description: Load these instructions when working with git history, commit messa
 - In public-facing `Validation` text, keep commands repository-relative or
   generic, and strip local paths, machine-specific interpreter locations,
   usernames embedded in paths, proxy wrappers, and internal-only URLs.
-- Do **not** add `Co-authored-by:` trailers attributing AI tools (e.g. GitHub Copilot, ChatGPT, Claude) to commits, MR descriptions, or PR descriptions unless the user explicitly asks for them. This applies to both the commit message body and any web UI description fields.
+- Default to omitting `Co-authored-by:` trailers attributing AI tools (e.g. GitHub Copilot, ChatGPT, Claude) in commits, MR descriptions, and PR descriptions. These trailers are optional; add them only when the user explicitly asks for them. This applies to both the commit message body and any web UI description fields.
 
 ## Branch Workflow
 
@@ -41,6 +54,9 @@ description: Load these instructions when working with git history, commit messa
 
 - Base the title, description, and final squash commit on the full branch diff, not only the latest commit.
 - Compare against the target branch and keep the title to a single line.
+- For GitLab merge requests targeting `master`, keep the title compatible
+  with `scm/qac/check_mr_title.py`: `<type>(<scope>): <Description>` with an
+  uppercase first letter in the description.
 - Keep the description concise and preserve the multiline section structure used in commit bodies.
 - Use the review title as the first line of the final squash commit message unless told otherwise, and mirror the final squash body in the review description unless told otherwise.
 - Prefer explicit `none` / `not applicable` markers over ambiguous omissions.

@@ -1,5 +1,5 @@
 ---
-description: Load these instructions when creating, editing, or reorganizing AGENTS.md files, .agents/instructions/*.md files, .agents/references/* assets, or .agents/skills/* guidance in this repository.
+description: Load these instructions when creating, editing, or reorganizing AGENTS.md files, .agents/instructions/*.md files, .agents/references/* assets, .agents/templates/* assets, or .agents/skills/* guidance in this repository.
 ---
 
 # Guidance Authoring Instructions
@@ -7,11 +7,15 @@ description: Load these instructions when creating, editing, or reorganizing AGE
 ## Guidance Model
 
 - Treat this repository as an independent guidance root.
-- Keep local `AGENTS.md`, `.agents/instructions/`, `.agents/references/`, and `.agents/skills/`
+- Keep local `AGENTS.md`, `.agents/instructions/`, `.agents/references/`,
+  `.agents/templates/`, and `.agents/skills/`
   self-contained; do not rely on any containing workspace or parent
   repository to make the wording complete.
 - When borrowing a rule from another repository, rewrite it so it remains
   accurate for this repository's own layout, tooling, and ownership model.
+- When explicitly syncing guidance with a containing workspace or sibling
+  repository, preserve this repository's independent runtime model. Borrow
+  only the applicable stable rules and localize paths, commands, and scope.
 
 ## AGENTS.md Responsibilities
 
@@ -19,7 +23,8 @@ description: Load these instructions when creating, editing, or reorganizing AGE
 - Keep detailed behavior rules in `.agents/instructions/` or
   `.agents/skills/`, not in `AGENTS.md`.
 - Keep `Quick Routing` limited to topics owned by this repository.
-- If `AGENTS.md` says a local `.agents/instructions/`, `.agents/references/`, or `.agents/skills/`
+- If `AGENTS.md` says a local `.agents/instructions/`, `.agents/references/`,
+  `.agents/templates/`, or `.agents/skills/`
   tree exists, make sure the referenced paths actually exist.
 - Keep `source of truth` and `independent repository` wording consistent
   with the no-parent-fallback model.
@@ -32,6 +37,11 @@ description: Load these instructions when creating, editing, or reorganizing AGE
   scope, precedence, routing, and discoverability.
 - Keep each file focused on repository-specific behavior or a clearly
   scoped topic instead of duplicating broad guidance without need.
+- For high-frequency entrypoint instructions such as
+  `.agents/instructions/python.instructions.md`, prefer compact direct rules
+  over broad cross-reference-only indirection. Add a short local see-also
+  only when it materially improves disambiguation without sending routine
+  tasks through a much larger reference file.
 - Prefer one clear routing entry over repeated topic lists across `Read
   First`, `Quick Routing`, and repository notes when the repeated text does
   not add repository-specific meaning.
@@ -64,18 +74,46 @@ description: Load these instructions when creating, editing, or reorganizing AGE
 - Use `.agents/references/*` for stable, agent-facing terminology, naming guidance, checklists, and short decision summaries.
 - Keep reference files concise and specific enough that `AGENTS.md` or a skill can link to them directly.
 
+## Template Files
+
+- Use `.agents/templates/*` for reusable agent-facing output skeletons,
+  intake forms, report structures, and scaffold documents.
+- Keep templates neutral and reusable. Put policy and decision logic in
+  instructions, references, or skills; keep templates focused on shape.
+- Prefer adding a template only when multiple future tasks can reuse the same
+  structure. Do not turn one-off task notes into permanent templates.
+- When a template depends on a guideline, link both from `AGENTS.md` or the
+  relevant skill so agents load the rule and the scaffold together.
+
+## Asset Fit And Extraction
+
+- Do not default to appending new guidance to the nearest existing file just
+  because that file is already open.
+- When a stable lesson introduces a new reusable topic, a new routing target,
+  or a distinct ownership boundary, prefer a dedicated instruction,
+  reference, or template over expanding an only-partially-related file.
+- If the new content would turn one file into a mixed-scope catch-all or
+  duplicate the same rule across guidance families, split it out and leave
+  short cross-links instead. Temporary stopgap additions should be extracted
+  once the topic proves stable.
+
 ## Temporary Design Drafts And Retrospectives
 
 - Temporary design drafts and one-off task retrospectives are not shared agent guidance.
-- Keep in-progress design notes in a disposable scratch path such as `.agents/scratch/designs/` while the task is active, then delete them after confirmation.
+- Keep in-progress design notes in a disposable scratch path such as `.agents/scratch/designs/` while the task is active.
+- Before deleting temporary design notes or other temporary development documents, get explicit user confirmation.
+- Before that deletion, run a local experience distillation pass. If durable lessons remain, update the appropriate local instructions, references, templates, or skills and record concise repo memory notes when that will help future tasks.
+- Do not treat temporary scratch notes as routed shared guidance while they remain task-local.
 - Promote stable project-facing knowledge into `docs/`, package docs, or another established design-doc location for this repository.
-- Distill stable agent-facing lessons into local instructions or other intentional local shared agent assets as appropriate, not raw scratch notes.
+- Distill stable agent-facing lessons into local instructions, references,
+  templates, or other intentional local shared agent assets as appropriate; do
+  not preserve one-off retrospectives when nothing durable should remain.
 
 ## Consistency Checks
 
 - After editing guidance, read the affected `AGENTS.md`, instruction files,
-  reference files, and skill references together to check for duplicate rules,
-  contradictory precedence, and mismatched scope.
+  reference files, template files, and skill references together to check for
+  duplicate rules, contradictory precedence, and mismatched scope.
 - For guidance-only or skill-only changes, run a minimal static validation
   pass: verify referenced paths exist, scan for stale routing or naming
   residues, confirm inventory classification still matches asset type if this

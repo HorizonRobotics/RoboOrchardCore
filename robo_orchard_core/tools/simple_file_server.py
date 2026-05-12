@@ -25,6 +25,11 @@ from typing import Optional
 import aiofiles
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from pydantic import AliasChoices, Field
+from pydantic_settings import CliImplicitFlag
+
+from robo_orchard_core.tools.cli_bridge import PydanticSettingsTyperAdapter
+from robo_orchard_core.utils.cli import SettingConfig
 
 app = FastAPI()
 
@@ -38,9 +43,7 @@ CORS_HEADERS = {
 }
 
 BASE_DIR = os.getenv("ROBO_ORCHARD_SIMPLE_FILE_SERVER_BASE_DIR", os.getcwd())
-if not os.path.isdir(BASE_DIR):
-    raise FileNotFoundError(f"Directory {BASE_DIR} does not exist")
-print(f"Serving files from: {BASE_DIR}")
+ALLOW_SYMLINK = False
 
 
 def resolve_path_from_base(path: str) -> Path | None:
@@ -55,7 +58,16 @@ def resolve_path_from_base(path: str) -> Path | None:
             directory.
     """
     base_dir = Path(BASE_DIR).resolve()
-    resolved_path = (base_dir / path.lstrip("/")).resolve(strict=False)
+    request_path = Path(os.path.normpath(base_dir / path.lstrip("/")))
+    try:
+        request_path.relative_to(base_dir)
+    except ValueError:
+        return None
+
+    if ALLOW_SYMLINK:
+        return request_path
+
+    resolved_path = request_path.resolve(strict=False)
     if resolved_path != base_dir and base_dir not in resolved_path.parents:
         return None
     return resolved_path
@@ -265,7 +277,9 @@ async def serve_file(request: Request, filepath: str):
         html_content = generate_directory_listing(filepath, str(request.url))
         if html_content:
             return HTMLResponse(content=html_content, status_code=200)
-        raise HTTPException(status_code=404, detail="Directory not found")
+        raise HTTPException(
+            status_code=404, detail="Directory not found"
+        )
 
     # If it's a file, serve it
     if not full_path.is_file():
@@ -350,14 +364,76 @@ async def head_file(request: Request, filepath: str):
     )
 
 
-def start_server(host: str, port: int, directory: str):
+class FileServerConfig(SettingConfig):
+    """Settings model for the ``robo-orchard file-server`` command.
+
+    The command serves files from one local directory over HTTP. Symlink
+    traversal is disabled by default; callers must opt in with
+    ``allow_symlink`` when they intentionally want linked paths to be served.
+    """
+
+    port: Optional[int] = Field(
+        default=None,
+        description="Port to bind the server to.",
+    )
+    host: str = Field(
+        default="127.0.0.1",
+        description="Host interface to bind to.",
+    )
+    directory: str = Field(
+        default=".",
+        validation_alias=AliasChoices("dir", "directory"),
+        description="Directory to serve.",
+    )
+    allow_symlink: CliImplicitFlag[bool] = Field(
+        default=False,
+        description="Allow serving files through symlinks.",
+    )
+
+    def command_impl(self) -> None:
+        """Start the file server using the parsed command-line settings."""
+        from robo_orchard_core.utils.network import find_free_port
+
+        port = self.port
+        if port is None:
+            port = find_free_port()
+
+        start_server(
+            host=self.host,
+            port=port,
+            directory=self.directory,
+            allow_symlink=self.allow_symlink,
+        )
+
+
+cli_app = PydanticSettingsTyperAdapter().as_typer(
+    FileServerConfig,
+    prog="robo-orchard file-server",
+    description="Simple HTTP file server.",
+)
+
+
+def start_server(
+    host: str, port: int, directory: str, allow_symlink: bool = False
+):
+    """Start the FastAPI-backed simple file server.
+
+    Args:
+        host (str): Host interface to bind to.
+        port (int): Port to bind to.
+        directory (str): Local directory to serve.
+        allow_symlink (bool, optional): Whether resolved symlink targets may
+            point outside ``directory``. Default is False.
+    """
     target_dir = os.path.abspath(directory)
     if not os.path.isdir(target_dir):
         print(f"Error: Directory '{target_dir}' does not exist.")
         return
 
-    global BASE_DIR
+    global ALLOW_SYMLINK, BASE_DIR
     BASE_DIR = target_dir
+    ALLOW_SYMLINK = allow_symlink
+    print(f"Serving files from: {BASE_DIR}")
 
     import uvicorn
 

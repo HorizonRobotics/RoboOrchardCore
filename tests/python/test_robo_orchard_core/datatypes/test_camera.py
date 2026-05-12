@@ -26,6 +26,7 @@ from robo_orchard_core.datatypes.camera_data import (
     BatchCameraDataEncoded,
     BatchCameraInfo,
     BatchFrameTransform,
+    BatchImageData,
     Distortion,
     ImageMode,
 )
@@ -109,6 +110,151 @@ class TestBatchCameraData:
         assert new_data.transform_matrices is not None
         assert torch.allclose(
             ts.get_matrix(), new_data.transform_matrices, atol=1e-6
+        )
+
+    def test_resize2d_area_matches_cv2_resize(self):
+        sensor_data = torch.arange(5 * 6 * 3, dtype=torch.uint8).view(
+            1, 5, 6, 3
+        )
+        data = BatchImageData(
+            sensor_data=sensor_data,
+            pix_fmt=ImageMode.RGB,
+            timestamps=[11],
+        )
+
+        resized = data.resize2d(target_hw=(2, 3), inter_mode="area")
+
+        expected = cv2.resize(
+            sensor_data[0].numpy(),
+            dsize=(3, 2),
+            interpolation=cv2.INTER_AREA,
+        )
+        assert resized.sensor_data.dtype == torch.uint8
+        assert resized.pix_fmt == ImageMode.RGB
+        assert resized.timestamps == [11]
+        assert torch.equal(
+            resized.sensor_data,
+            torch.asarray(expected).unsqueeze(0),
+        )
+
+    def test_resize2d_nearest_preserves_uint16_depth_values(self):
+        sensor_data = torch.tensor(
+            [
+                [
+                    [[0], [100], [200], [300]],
+                    [[400], [500], [600], [700]],
+                    [[800], [900], [1000], [1100]],
+                    [[1200], [1300], [1400], [1500]],
+                    [[1600], [1700], [1800], [1900]],
+                ]
+            ],
+            dtype=torch.uint16,
+        )
+        data = BatchImageData(
+            sensor_data=sensor_data,
+            pix_fmt=ImageMode.I16,
+        )
+
+        resized = data.resize2d(target_hw=(2, 2), inter_mode="nearest")
+
+        expected = cv2.resize(
+            sensor_data[0, ..., 0].numpy(),
+            dsize=(2, 2),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        assert resized.sensor_data.dtype == torch.uint16
+        assert torch.equal(
+            resized.sensor_data,
+            torch.asarray(expected).unsqueeze(0).unsqueeze(-1),
+        )
+
+    def test_camera_resize2d_updates_image_shape_and_effective_intrinsic(self):
+        sensor_data = torch.arange(2 * 5 * 6 * 3, dtype=torch.uint8).view(
+            2, 5, 6, 3
+        )
+        intrinsic_matrices = torch.tensor(
+            [
+                [[100.0, 0.0, 3.0], [0.0, 80.0, 2.0], [0.0, 0.0, 1.0]],
+                [[120.0, 0.0, 2.5], [0.0, 90.0, 1.5], [0.0, 0.0, 1.0]],
+            ],
+            dtype=torch.float32,
+        )
+        transform_matrices = torch.tensor(
+            [
+                [[1.2, 0.0, 2.0], [0.0, 1.4, 3.0], [0.0, 0.0, 1.0]],
+                [[0.8, 0.0, 4.0], [0.0, 1.1, 5.0], [0.0, 0.0, 1.0]],
+            ],
+            dtype=torch.float32,
+        )
+        data = BatchCameraData(
+            sensor_data=sensor_data,
+            pix_fmt=ImageMode.RGB,
+            intrinsic_matrices=intrinsic_matrices,
+            transform_matrices=transform_matrices,
+            frame_id="camera",
+            timestamps=[101, 102],
+        )
+
+        resized = data.resize2d(target_hw=(2, 3), inter_mode="area")
+
+        scale_mat = torch.tensor(
+            [[0.5, 0.0, 0.0], [0.0, 0.4, 0.0], [0.0, 0.0, 1.0]],
+            dtype=torch.float32,
+        )
+        expected_transform = scale_mat.unsqueeze(0) @ transform_matrices
+        assert resized.image_shape == (2, 3)
+        assert resized.sensor_data.shape == (2, 2, 3, 3)
+        assert resized.frame_id == data.frame_id
+        assert resized.timestamps == data.timestamps
+        assert resized.transform_matrices is not None
+        assert torch.allclose(
+            resized.transform_matrices, expected_transform, atol=1e-6
+        )
+        resized_intrinsic = resized.get_intrinsic_with_transform()
+        assert resized_intrinsic is not None
+        assert torch.allclose(
+            resized_intrinsic,
+            expected_transform @ intrinsic_matrices,
+            atol=1e-6,
+        )
+
+    def test_camera_resize2d_records_batch_scale_without_existing_transform(
+        self,
+    ):
+        sensor_data = torch.arange(2 * 5 * 6 * 3, dtype=torch.uint8).view(
+            2, 5, 6, 3
+        )
+        intrinsic_matrices = torch.tensor(
+            [
+                [[100.0, 0.0, 3.0], [0.0, 80.0, 2.0], [0.0, 0.0, 1.0]],
+                [[120.0, 0.0, 2.5], [0.0, 90.0, 1.5], [0.0, 0.0, 1.0]],
+            ],
+            dtype=torch.float32,
+        )
+        data = BatchCameraData(
+            sensor_data=sensor_data,
+            pix_fmt=ImageMode.RGB,
+            intrinsic_matrices=intrinsic_matrices,
+        )
+
+        resized = data.resize2d(target_hw=(2, 3), inter_mode="area")
+
+        expected_transform = (
+            torch.tensor(
+                [[0.5, 0.0, 0.0], [0.0, 0.4, 0.0], [0.0, 0.0, 1.0]],
+                dtype=torch.float32,
+            )
+            .unsqueeze(0)
+            .repeat(2, 1, 1)
+        )
+        assert resized.transform_matrices is not None
+        assert torch.equal(resized.transform_matrices, expected_transform)
+        resized_intrinsic = resized.get_intrinsic_with_transform()
+        assert resized_intrinsic is not None
+        assert torch.allclose(
+            resized_intrinsic,
+            expected_transform @ intrinsic_matrices,
+            atol=1e-6,
         )
 
     def test_getitem_supports_int_slice_and_list(self):
@@ -278,6 +424,32 @@ class TestBatchCameraData:
         assert decoded.intrinsic_matrices is not None
         assert data.intrinsic_matrices is not None
         assert torch.equal(decoded.intrinsic_matrices, data.intrinsic_matrices)
+
+    def test_jpg_format_is_jpeg_alias_for_encode_decode(self):
+        data = BatchCameraData(
+            sensor_data=torch.randint(
+                low=0,
+                high=255,
+                size=(2, 8, 7, 3),
+                dtype=torch.uint8,
+            ),
+            pix_fmt=ImageMode.RGB,
+            intrinsic_matrices=(
+                torch.eye(3, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1)
+            ),
+            frame_id="camera",
+            timestamps=[11, 22],
+        )
+
+        encoded = data.encode(format="jpg")
+        decoded = encoded.decode()
+
+        assert encoded.format == "jpg"
+        assert decoded.image_shape == data.image_shape
+        assert decoded.pix_fmt == ImageMode.RGB
+        assert decoded.sensor_data.shape == data.sensor_data.shape
+        assert decoded.frame_id == data.frame_id
+        assert decoded.timestamps == data.timestamps
 
 
 class TestBatchCameraInfo:

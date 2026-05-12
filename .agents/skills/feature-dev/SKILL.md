@@ -238,3 +238,91 @@ Suggested next steps:
 - Add more OAuth providers (Microsoft, Apple)
 - Update documentation
 ```
+
+## Sub-skill Usage
+
+### `code-explorer`
+
+Use this sub-skill to deeply analyze how an existing feature or subsystem works before implementation.
+
+Expected outputs:
+- entry points with file references
+- execution flow and data transformations
+- key components and responsibilities
+- architecture patterns and extension points
+- essential files to read next
+
+### `code-architect`
+
+Use this sub-skill to produce concrete implementation blueprints grounded in repository patterns.
+
+Expected outputs:
+- patterns and conventions found
+- architecture decision and rationale
+- files to create or modify
+- component responsibilities and data flow
+- implementation phases and critical considerations
+
+### `code-reviewer`
+
+Use this sub-skill after implementation to find high-confidence issues that materially matter.
+
+Expected outputs:
+- high-confidence findings only
+- severity and rationale
+- affected files or areas
+- concrete fix direction
+
+## Best Practices
+
+- Use the full workflow for features spanning multiple files or requiring design trade-offs.
+- Do not ask broad, low-value questions before codebase exploration.
+- Prefer one organized batch of clarifying questions over repeated interruptions.
+- Read the files surfaced by analysis before making architectural claims.
+- Ground recommendations in repository patterns rather than generic advice.
+- If the task turns out to be trivial, compress the workflow while preserving the same reasoning discipline.
+
+## When Not to Use This Skill
+
+This workflow is usually overkill for:
+- one-line bug fixes
+- trivial refactors
+- clearly scoped edits in a single file
+- urgent hotfixes where architecture comparison adds no value
+
+## Troubleshooting
+
+### Analysis takes too long
+
+**Issue**: Code exploration or architecture analysis feels slow.
+
+**Solution**:
+- This is normal for large codebases.
+- Analysis passes should run in parallel when possible.
+- The extra depth usually pays off in better understanding and fewer wrong turns.
+
+### Too many clarifying questions
+
+**Issue**: Phase 3 asks too many questions.
+
+**Solution**:
+- Be more specific in the initial feature request.
+- Provide constraints and preferences up front.
+- Say "whatever you think is best" only when you truly have no preference.
+
+### Architecture options feel overwhelming
+
+**Issue**: Phase 4 presents too many choices.
+
+**Solution**:
+- Trust the recommendation when it is grounded in the codebase analysis.
+- If still unsure, ask for more explanation of trade-offs.
+- Pick the pragmatic option when in doubt.
+
+## Tips
+
+- **Be specific in the feature request**: More detail usually means fewer clarifying questions.
+- **Trust the process**: Each phase builds on the previous one.
+- **Review sub-skill outputs carefully**: They surface important insights about the codebase.
+- **Do not skip phases**: Each phase exists to reduce mistakes and rework.
+- **Use the workflow for learning**: The exploration phase is also a good way to understand your own codebase better.

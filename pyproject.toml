@@ -18,6 +18,7 @@ dependencies = [
     "gymnasium",
     "pillow",
     "opencv-python>=4",
+    "typer",
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -39,10 +40,9 @@ virtual_desktop = [
     "mss",
 ]
 tools = [
-    "typer",
     "fastapi",
     "aiofiles",
-    "uvicorn"
+    "uvicorn",
 ]
 all = ["robo_orchard_core[kinematic,ipy_viz,virtual_desktop,tools]"]
 
@@ -54,6 +54,9 @@ Issues = "https://github.com/HorizonRobotics/RoboOrchardCore/issues"
 
 [project.scripts]
 robo-orchard = "robo_orchard_core.tools.cli:main"
+
+[project.entry-points."robo_orchard.cli"]
+file-server = "robo_orchard_core.tools.simple_file_server:cli_app"
 
 [build-system]
 requires = ["setuptools >= 77.0.3"]

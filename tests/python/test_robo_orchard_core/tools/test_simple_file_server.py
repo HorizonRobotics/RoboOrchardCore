@@ -14,18 +14,138 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
+import subprocess
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
+from typer.testing import CliRunner
 
+import robo_orchard_core.tools.simple_file_server as server_module
+import robo_orchard_core.utils.network as network_module
 from robo_orchard_core.tools.simple_file_server import (
     generate_directory_listing,
     guess_content_type,
     parse_byte_range,
 )
 
+runner = CliRunner()
+
 
 class TestHelperFunctions:
     """Unit tests for standalone helper functions."""
+
+    def test_import_has_no_stdout_side_effect(self):
+        """Tests importing the module does not pollute CLI help output."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import robo_orchard_core.tools.simple_file_server",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
+
+    def test_file_server_config_uses_free_port(self, monkeypatch):
+        """Tests FileServerConfig delegates free port resolution at runtime."""
+        called = {}
+
+        monkeypatch.setattr(network_module, "find_free_port", lambda: 4321)
+        monkeypatch.setattr(
+            server_module,
+            "start_server",
+            lambda host, port, directory, allow_symlink: called.update(
+                host=host,
+                port=port,
+                directory=directory,
+                allow_symlink=allow_symlink,
+            ),
+        )
+
+        config = server_module.FileServerConfig(
+            host="0.0.0.0",
+            directory="demo",
+        )
+
+        config.command_impl()
+
+        assert called == {
+            "host": "0.0.0.0",
+            "port": 4321,
+            "directory": "demo",
+            "allow_symlink": False,
+        }
+
+    def test_file_server_config_can_enable_symlink(self, monkeypatch):
+        """Tests FileServerConfig passes allow_symlink through."""
+        called = {}
+
+        monkeypatch.setattr(
+            server_module,
+            "start_server",
+            lambda host, port, directory, allow_symlink: called.update(
+                host=host,
+                port=port,
+                directory=directory,
+                allow_symlink=allow_symlink,
+            ),
+        )
+
+        config = server_module.FileServerConfig(
+            port=1234,
+            directory="demo",
+            allow_symlink=True,
+        )
+
+        config.command_impl()
+
+        assert called == {
+            "host": "127.0.0.1",
+            "port": 1234,
+            "directory": "demo",
+            "allow_symlink": True,
+        }
+
+    def test_file_server_cli_app_accepts_dir_alias(self, monkeypatch):
+        """Tests the plugin CLI keeps the existing --dir option."""
+        called = {}
+
+        monkeypatch.setattr(
+            server_module,
+            "start_server",
+            lambda host, port, directory, allow_symlink: called.update(
+                host=host,
+                port=port,
+                directory=directory,
+                allow_symlink=allow_symlink,
+            ),
+        )
+
+        result = runner.invoke(
+            server_module.cli_app,
+            [
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "1234",
+                "--dir",
+                "demo",
+                "--allow-symlink",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert called == {
+            "host": "0.0.0.0",
+            "port": 1234,
+            "directory": "demo",
+            "allow_symlink": True,
+        }
 
     @pytest.mark.parametrize(
         "range_header, expected",
@@ -106,6 +226,41 @@ class TestApiEndpoints:
         assert response.status_code == 200
         assert response.text == "Nested content."
 
+    def test_symlink_directory_is_rejected_by_default(
+        self, client: TestClient, test_directory, tmp_path
+    ):
+        """Tests that external symlink dirs are disabled by default."""
+        target_dir = tmp_path / "linked_target"
+        target_dir.mkdir()
+        (target_dir / "linked.txt").write_text("Linked content.")
+        (test_directory / "linked_default_dir").symlink_to(
+            target_dir, target_is_directory=True
+        )
+
+        response = client.get("/linked_default_dir/linked.txt")
+
+        assert response.status_code == 404
+        assert response.text == "File not found"
+
+    def test_get_file_from_symlink_directory_when_enabled(
+        self, client: TestClient, test_directory, tmp_path, monkeypatch
+    ):
+        """Tests serving a file through a symlinked directory when enabled."""
+        target_dir = tmp_path / "linked_target"
+        target_dir.mkdir()
+        (target_dir / "linked.txt").write_text("Linked content.")
+        (test_directory / "linked_enabled_dir").symlink_to(
+            target_dir, target_is_directory=True
+        )
+        monkeypatch.setattr(
+            server_module, "ALLOW_SYMLINK", True, raising=False
+        )
+
+        response = client.get("/linked_enabled_dir/linked.txt")
+
+        assert response.status_code == 200
+        assert response.text == "Linked content."
+
     def test_file_not_found(self, client: TestClient):
         """Tests requesting a non-existent file."""
         response = client.get("/nonexistent.file")
@@ -131,6 +286,20 @@ class TestApiEndpoints:
         secret_path.write_text("secret")
 
         response = client.get(path_template.format(filename=secret_name))
+
+        assert response.status_code == 404
+        assert response.text == "File not found"
+
+    def test_path_traversal_is_rejected_when_symlink_enabled(
+        self, client: TestClient, test_directory, monkeypatch
+    ):
+        """Tests that enabling symlinks does not allow direct path escape."""
+        secret_name = f"{test_directory.name}_symlink_secret.txt"
+        secret_path = test_directory.parent / secret_name
+        secret_path.write_text("secret")
+        monkeypatch.setattr(server_module, "ALLOW_SYMLINK", True)
+
+        response = client.get(f"/%2e%2e/{secret_name}")
 
         assert response.status_code == 404
         assert response.text == "File not found"

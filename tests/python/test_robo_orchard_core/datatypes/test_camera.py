@@ -28,6 +28,7 @@ from robo_orchard_core.datatypes.camera_data import (
     BatchFrameTransform,
     BatchImageData,
     Distortion,
+    ImageChannelLayout,
     ImageMode,
 )
 from robo_orchard_core.utils.math import math_utils
@@ -425,6 +426,67 @@ class TestBatchCameraData:
         assert data.intrinsic_matrices is not None
         assert torch.equal(decoded.intrinsic_matrices, data.intrinsic_matrices)
 
+    def test_encode_passes_default_codec_options(self, monkeypatch):
+        from PIL import Image
+
+        data = BatchCameraData(
+            sensor_data=torch.randint(
+                low=0,
+                high=255,
+                size=(1, 8, 7, 3),
+                dtype=torch.uint8,
+            ),
+            pix_fmt=ImageMode.RGB,
+        )
+        save_calls = []
+        original_save = Image.Image.save
+
+        def save_with_capture(self, fp, format=None, **params):
+            save_calls.append((format, dict(params)))
+            return original_save(self, fp, format=format, **params)
+
+        monkeypatch.setattr(Image.Image, "save", save_with_capture)
+
+        data.encode(format="jpg", jpeg_quality=87)
+        data.encode(format="png", png_compression=2)
+
+        assert save_calls[0] == ("JPEG", {"quality": 87})
+        assert save_calls[1] == ("PNG", {"compress_level": 2})
+
+    def test_encode_rejects_default_options_for_other_formats(self):
+        data = BatchCameraData(
+            sensor_data=torch.randint(
+                low=0,
+                high=255,
+                size=(1, 8, 7, 3),
+                dtype=torch.uint8,
+            ),
+            pix_fmt=ImageMode.RGB,
+        )
+
+        with pytest.raises(ValueError, match="jpeg_quality"):
+            data.encode(format="png", jpeg_quality=87)
+
+        with pytest.raises(ValueError, match="png_compression"):
+            data.encode(format="jpg", png_compression=2)
+
+    def test_encode_rejects_default_options_with_custom_encoder(self):
+        data = BatchCameraData(
+            sensor_data=torch.randint(
+                low=0,
+                high=255,
+                size=(1, 8, 7, 3),
+                dtype=torch.uint8,
+            ),
+            pix_fmt=ImageMode.RGB,
+        )
+
+        def encoder(format: str, data: BatchImageData) -> list[bytes]:
+            return [b"custom"] * data.sensor_data.shape[0]
+
+        with pytest.raises(ValueError, match="only supported"):
+            data.encode(format="png", encoder=encoder, png_compression=2)
+
     def test_jpg_format_is_jpeg_alias_for_encode_decode(self):
         data = BatchCameraData(
             sensor_data=torch.randint(
@@ -450,6 +512,170 @@ class TestBatchCameraData:
         assert decoded.sensor_data.shape == data.sensor_data.shape
         assert decoded.frame_id == data.frame_id
         assert decoded.timestamps == data.timestamps
+
+    def test_image_shape_hint_must_match_valid_channel_layout(self):
+        with pytest.raises(ValueError, match="image shape"):
+            BatchCameraData(
+                sensor_data=torch.zeros((1, 5, 6, 3), dtype=torch.uint8),
+                pix_fmt=ImageMode.RGB,
+                image_shape=(6, 3),
+            )
+
+        with pytest.raises(ValueError, match="image shape"):
+            BatchCameraData(
+                sensor_data=torch.zeros((1, 3, 5, 6), dtype=torch.uint8),
+                pix_fmt=ImageMode.RGB,
+                image_shape=(3, 5),
+            )
+
+    def test_encoded_resize2d_uses_image_shape_for_ambiguous_hwc(self):
+        data = BatchCameraData(
+            sensor_data=torch.arange(1 * 3 * 6 * 3, dtype=torch.uint8).view(
+                1, 3, 6, 3
+            ),
+            pix_fmt=ImageMode.RGB,
+            image_shape=(3, 6),
+        )
+        encoded = data.encode(
+            format="png",
+            channel_layout=ImageChannelLayout.HWC,
+        )
+
+        resized = encoded.resize2d(
+            target_hw=(2, 4),
+            inter_mode="nearest",
+        )
+
+        decoded = resized.decode()
+        assert resized.image_shape == (2, 4)
+        assert decoded.sensor_data.shape == (1, 2, 4, 3)
+
+    def test_encoded_resize2d_forwards_custom_codecs(self):
+        encoded = BatchCameraDataEncoded(
+            sensor_data=[b"raw"],
+            format="png",
+            image_shape=(3, 4),
+        )
+        decoded_data = BatchImageData(
+            sensor_data=torch.arange(1 * 3 * 4 * 3, dtype=torch.uint8).view(
+                1, 3, 4, 3
+            ),
+            pix_fmt=ImageMode.RGB,
+        )
+        encoder_calls = []
+
+        def decoder(
+            compressed_data: list[bytes],
+            format: str,
+        ) -> BatchImageData:
+            assert compressed_data == [b"raw"]
+            assert format == "png"
+            return decoded_data
+
+        def encoder(format: str, data: BatchImageData) -> list[bytes]:
+            encoder_calls.append((format, tuple(data.sensor_data.shape)))
+            return [b"resized"]
+
+        resized = encoded.resize2d(
+            target_hw=(2, 2),
+            inter_mode="nearest",
+            decoder=decoder,
+            encoder=encoder,
+        )
+
+        assert resized.sensor_data == [b"resized"]
+        assert resized.image_shape == (2, 2)
+        assert encoder_calls == [("png", (1, 2, 2, 3))]
+
+    def test_encoded_resize2d_preserves_format_and_updates_effective_intrinsic(
+        self,
+    ):
+        sensor_data = torch.arange(5 * 6 * 3, dtype=torch.uint8).view(
+            1, 5, 6, 3
+        )
+        intrinsic_matrices = torch.tensor(
+            [[[100.0, 0.0, 3.0], [0.0, 80.0, 2.5], [0.0, 0.0, 1.0]]],
+            dtype=torch.float32,
+        )
+        data = BatchCameraData(
+            sensor_data=sensor_data,
+            pix_fmt=ImageMode.RGB,
+            intrinsic_matrices=intrinsic_matrices,
+            frame_id="camera",
+            timestamps=[123],
+        )
+        encoded = data.encode(format="png")
+
+        resized = encoded.resize2d(
+            target_hw=(3, 2),
+            inter_mode="area",
+            png_compression=3,
+        )
+
+        assert resized.format == "png"
+        assert resized.image_shape == (3, 2)
+        assert resized.frame_id == data.frame_id
+        assert resized.timestamps == data.timestamps
+        decoded = resized.decode()
+        assert decoded.sensor_data.shape == (1, 3, 2, 3)
+        expected_scale = torch.tensor(
+            [
+                [
+                    [2.0 / 6.0, 0.0, 0.0],
+                    [0.0, 3.0 / 5.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ],
+            dtype=torch.float32,
+        )
+        resized_intrinsic = resized.get_intrinsic_with_transform()
+        assert resized_intrinsic is not None
+        assert torch.allclose(
+            resized_intrinsic,
+            expected_scale @ intrinsic_matrices,
+            atol=1e-6,
+        )
+
+    def test_encoded_resize2d_nearest_preserves_uint16_png_depth(self):
+        sensor_data = torch.tensor(
+            [
+                [
+                    [[0], [100], [200], [300]],
+                    [[400], [500], [600], [700]],
+                    [[800], [900], [1000], [1100]],
+                    [[1200], [1300], [1400], [1500]],
+                    [[1600], [1700], [1800], [1900]],
+                ]
+            ],
+            dtype=torch.uint16,
+        )
+        data = BatchCameraData(
+            sensor_data=sensor_data,
+            pix_fmt=ImageMode.I16,
+            timestamps=[456],
+        )
+        encoded = data.encode(format="png", png_compression=3)
+
+        resized = encoded.resize2d(
+            target_hw=(2, 2),
+            inter_mode="nearest",
+            expected_sensor_dtype=torch.uint16,
+            png_compression=3,
+        )
+
+        expected = cv2.resize(
+            sensor_data[0, ..., 0].numpy(),
+            dsize=(2, 2),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        decoded = resized.decode()
+        assert resized.image_shape == (2, 2)
+        assert decoded.sensor_data.dtype == torch.uint16
+        assert decoded.timestamps == [456]
+        assert torch.equal(
+            decoded.sensor_data,
+            torch.asarray(expected).unsqueeze(0).unsqueeze(-1),
+        )
 
 
 class TestBatchCameraInfo:

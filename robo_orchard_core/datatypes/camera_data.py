@@ -765,6 +765,8 @@ class BatchImageData(DataClass):
         inter_mode: Literal[
             "area", "nearest", "bilinear", "bicubic"
         ] = "bilinear",
+        *,
+        channel_layout: ImageChannelLayout | None = None,
     ) -> Self:
         """Resize image data with OpenCV while preserving batch layout.
 
@@ -773,6 +775,8 @@ class BatchImageData(DataClass):
             inter_mode: OpenCV interpolation mode. Supported values are
                 ``"area"``, ``"nearest"``, ``"bilinear"``, and
                 ``"bicubic"``. Default is ``"bilinear"``.
+            channel_layout: Layout used to interpret ``sensor_data``. If None,
+                infer from ``sensor_data``. Default is None.
 
         Returns:
             A shallow copy with resized ``sensor_data``.
@@ -802,7 +806,11 @@ class BatchImageData(DataClass):
                 "'bicubic'."
             )
 
-        layout = guess_channel_layout(self.sensor_data)
+        layout = (
+            self.channel_layout
+            if channel_layout is None
+            else channel_layout
+        )
         if layout != ImageChannelLayout.HWC:
             raise NotImplementedError(
                 "Only HWC channel layout is supported for resizing."
@@ -827,14 +835,31 @@ class BatchImageData(DataClass):
         ret.sensor_data = dst
         return ret
 
-    def as_pil_images(self) -> list[Image.Image]:
-        """Convert BatchCameraData to a list of PIL images."""
+    def as_pil_images(
+        self,
+        channel_layout: ImageChannelLayout | None = None,
+    ) -> list[Image.Image]:
+        """Convert image data to a list of PIL images.
+
+        Args:
+            channel_layout (ImageChannelLayout | None, optional): Layout used
+                to interpret ``sensor_data``. If None, infer from
+                ``sensor_data``. Default is None.
+
+        Returns:
+            list[Image.Image]: The image data converted to PIL images.
+        """
         sensor_data = self.sensor_data
-        if self.channel_layout == ImageChannelLayout.CHW:
+        layout = (
+            self.channel_layout
+            if channel_layout is None
+            else channel_layout
+        )
+        if layout == ImageChannelLayout.CHW:
             sensor_data = sensor_data.permute(0, 2, 3, 1)  # Convert to HWC
-        elif self.channel_layout != ImageChannelLayout.HWC:
+        elif layout != ImageChannelLayout.HWC:
             raise NotImplementedError(
-                f"Unsupported channel layout: {self.channel_layout}. "
+                f"Unsupported channel layout: {layout}. "
                 "Expected HWC or CHW."
             )
         mode = self.pix_fmt
@@ -902,7 +927,10 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
                 f"{self.intrinsic_matrices.shape[0]}."
             )
 
-        data_hw = get_image_shape(self.sensor_data)
+        data_hw = _get_sensor_data_image_shape(
+            self.sensor_data,
+            image_shape=self.image_shape,
+        )
         if self.image_shape is None:
             self.image_shape = data_hw
         else:
@@ -1032,7 +1060,14 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
             A shallow copy with resized image data and updated transform
             metadata.
         """
-        src_h, src_w = get_image_shape(self.sensor_data)
+        channel_layout = _get_sensor_data_channel_layout(
+            self.sensor_data,
+            image_shape=self.image_shape,
+        )
+        src_h, src_w = get_image_shape(
+            self.sensor_data,
+            channel_layout=channel_layout,
+        )
         target_h, target_w = target_hw
         if target_h <= 0 or target_w <= 0:
             raise ValueError(
@@ -1078,6 +1113,7 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
                 self,
                 target_hw=target_hw,
                 inter_mode=inter_mode,
+                channel_layout=channel_layout,
             ).__dict__
         )
         updated_dict["transform_matrices"] = scale_mat @ transform_matrices
@@ -1088,6 +1124,10 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         self,
         format: Literal["jpeg", "jpg", "png"],
         encoder: EncoderType | None = None,
+        *,
+        jpeg_quality: int | None = None,
+        png_compression: int | None = None,
+        channel_layout: ImageChannelLayout | None = None,
     ) -> BatchCameraDataEncoded:
         """Encode the BatchCameraData to a BatchCameraDataEncoded.
 
@@ -1095,17 +1135,42 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
             format (Literal["jpeg", "jpg", "png"]): The target format to encode
                 the data.
             encoder (EncoderType | None, optional): The encoder
-                function to encode the data. It should take a tensor and
-                the format as input and return a list of byte strings.
+                function to encode the data. It should take the format and
+                image data as input and return a list of byte strings. Default
+                is None.
+            jpeg_quality (int | None, optional): JPEG quality used by the
+                default encoder for JPEG/JPG output. If None, the encoder
+                default is used. Default is None.
+            png_compression (int | None, optional): PNG compression level used
+                by the default encoder for PNG output. If None, the encoder
+                default is used. Default is None.
+            channel_layout (ImageChannelLayout | None, optional): Channel
+                layout used by the default encoder. If None, infer from
+                ``sensor_data``. Default is None.
 
         Returns:
             BatchCameraDataEncoded: The encoded camera data.
         """
 
         if encoder is None:
-            encoder = _default_encoder
-        data = self
-        sensor_data_bytes = encoder(format, data)
+            sensor_data_bytes = _default_encoder(
+                format,
+                self,
+                jpeg_quality=jpeg_quality,
+                png_compression=png_compression,
+                channel_layout=channel_layout,
+            )
+        else:
+            if (
+                jpeg_quality is not None
+                or png_compression is not None
+                or channel_layout is not None
+            ):
+                raise ValueError(
+                    "jpeg_quality, png_compression, and channel_layout are "
+                    "only supported when using the default encoder."
+                )
+            sensor_data_bytes = encoder(format, self)
 
         data_dict = {
             k: self.__dict__[k]
@@ -1263,6 +1328,70 @@ class BatchCameraDataEncoded(BatchCameraInfo):
 
         return BatchCameraData(**data_dict)
 
+    def resize2d(
+        self,
+        target_hw: tuple[int, int],
+        inter_mode: Literal[
+            "area", "nearest", "bilinear", "bicubic"
+        ] = "bilinear",
+        *,
+        expected_sensor_dtype: torch.dtype | None = None,
+        decoder: DecoderType | None = None,
+        encoder: EncoderType | None = None,
+        jpeg_quality: int | None = None,
+        png_compression: int | None = None,
+    ) -> BatchCameraDataEncoded:
+        """Resize encoded camera frames and re-encode in the same format.
+
+        Args:
+            target_hw (tuple[int, int]): Output image shape as
+                ``(height, width)``.
+            inter_mode (str, optional): OpenCV interpolation mode used for
+                resizing. Supported values are ``"area"``, ``"nearest"``,
+                ``"bilinear"``, and ``"bicubic"``. Default is
+                ``"bilinear"``.
+            expected_sensor_dtype (torch.dtype | None, optional): Required
+                decoded ``sensor_data`` dtype before resizing. If None, no
+                dtype check is applied. Default is None.
+            decoder (DecoderType | None, optional): Decoder used to produce
+                image data before resizing. If None, use the default decoder.
+                Default is None.
+            encoder (EncoderType | None, optional): Encoder used after
+                resizing. If None, use the default encoder. Default is None.
+            jpeg_quality (int | None, optional): JPEG quality used when
+                re-encoding JPEG/JPG data with the default encoder. If None,
+                the encoder default is used. Default is None.
+            png_compression (int | None, optional): PNG compression level used
+                when re-encoding PNG data with the default encoder. If None,
+                the encoder default is used. Default is None.
+
+        Returns:
+            BatchCameraDataEncoded: Resized encoded camera data.
+        """
+
+        decoded = self.decode(decoder=decoder)
+        if (
+            expected_sensor_dtype is not None
+            and decoded.sensor_data.dtype != expected_sensor_dtype
+        ):
+            raise ValueError(
+                "decoded sensor_data dtype must be "
+                f"{expected_sensor_dtype}, got {decoded.sensor_data.dtype}."
+            )
+        resized = decoded.resize2d(
+            target_hw=target_hw,
+            inter_mode=inter_mode,
+        )
+        return resized.encode(
+            format=self.format,
+            encoder=encoder,
+            jpeg_quality=jpeg_quality,
+            png_compression=png_compression,
+            channel_layout=(
+                ImageChannelLayout.HWC if encoder is None else None
+            ),
+        )
+
     @classmethod
     def concat(cls, all: Sequence[Self]) -> Self:
         # concat sensor_data:
@@ -1311,6 +1440,76 @@ EncoderType: TypeAlias = Callable[[str, BatchImageData], list[bytes]]
 DecoderType: TypeAlias = Callable[[list[bytes], str], BatchImageData]
 
 
+def _validate_codec_options(
+    *,
+    format: str,
+    jpeg_quality: int | None,
+    png_compression: int | None,
+) -> None:
+    if jpeg_quality is not None and not 1 <= jpeg_quality <= 100:
+        raise ValueError(
+            f"jpeg_quality must be in [1, 100], got {jpeg_quality}."
+        )
+    if png_compression is not None and not 0 <= png_compression <= 9:
+        raise ValueError(
+            "png_compression must be in [0, 9], "
+            f"got {png_compression}."
+        )
+    if format == "png" and jpeg_quality is not None:
+        raise ValueError("jpeg_quality is only supported for JPEG output.")
+    if format in ("jpeg", "jpg") and png_compression is not None:
+        raise ValueError("png_compression is only supported for PNG output.")
+
+
+def _image_shape_matches_layout(
+    sensor_data: torch.Tensor,
+    image_shape: tuple[int, int],
+    channel_layout: ImageChannelLayout,
+) -> bool:
+    possible_channels = (1, 3, 4)
+    if channel_layout == ImageChannelLayout.HWC:
+        return (
+            image_shape == (sensor_data.shape[-3], sensor_data.shape[-2])
+            and sensor_data.shape[-1] in possible_channels
+        )
+    if channel_layout == ImageChannelLayout.CHW:
+        return (
+            image_shape == (sensor_data.shape[-2], sensor_data.shape[-1])
+            and sensor_data.shape[-3] in possible_channels
+        )
+    raise ValueError(f"Unknown channel layout: {channel_layout}.")
+
+
+def _get_sensor_data_channel_layout(
+    sensor_data: torch.Tensor,
+    *,
+    image_shape: tuple[int, int] | None,
+) -> ImageChannelLayout:
+    if image_shape is None:
+        return guess_channel_layout(sensor_data)
+
+    matching_layouts = [
+        layout
+        for layout in (ImageChannelLayout.HWC, ImageChannelLayout.CHW)
+        if _image_shape_matches_layout(sensor_data, image_shape, layout)
+    ]
+    if len(matching_layouts) == 1:
+        return matching_layouts[0]
+    return guess_channel_layout(sensor_data)
+
+
+def _get_sensor_data_image_shape(
+    sensor_data: torch.Tensor,
+    *,
+    image_shape: tuple[int, int] | None,
+) -> tuple[int, int]:
+    channel_layout = _get_sensor_data_channel_layout(
+        sensor_data,
+        image_shape=image_shape,
+    )
+    return get_image_shape(sensor_data, channel_layout=channel_layout)
+
+
 def _default_decoder(
     compressed_data: list[bytes],
     format: str,
@@ -1335,9 +1534,15 @@ def _default_decoder(
 
     img_mode: ImageMode | None = None
     img_tensors = []
-    for data in compressed_data:
-        img = Image.open(io.BytesIO(data))
-        img_tensor = torch.asarray(np.array(img))
+    for frame_index, data in enumerate(compressed_data):
+        try:
+            img = Image.open(io.BytesIO(data))
+            img_tensor = torch.asarray(np.array(img))
+        except Exception as exc:
+            raise ValueError(
+                f"frame={frame_index}; format={format}; "
+                "failed to decode compressed image"
+            ) from exc
         if img_mode is None:
             img_mode = ImageMode(img.mode)
         else:
@@ -1362,13 +1567,23 @@ def _default_decoder(
 def _default_encoder(
     format: str,
     data: BatchImageData,
+    *,
+    jpeg_quality: int | None = None,
+    png_compression: int | None = None,
+    channel_layout: ImageChannelLayout | None = None,
 ) -> list[bytes]:
     """Default encoder function to encode image data to compressed format.
 
     Args:
         format (str): The target format to encode the data.
         data (BatchImageData): The image data to encode.
-
+        jpeg_quality (int | None, optional): JPEG quality for JPEG/JPG output.
+            If None, the encoder default is used. Default is None.
+        png_compression (int | None, optional): PNG compression level for PNG
+            output. If None, the encoder default is used. Default is None.
+        channel_layout (ImageChannelLayout | None, optional): Channel layout
+            used to convert ``data`` to PIL images. If None, infer from
+            ``data.sensor_data``. Default is None.
 
     Returns:
         tuple[list[bytes], str]: The encoded image data and the format.
@@ -1379,12 +1594,29 @@ def _default_encoder(
         raise ValueError(
             f"Unsupported format: {format}. Expected 'jpeg', 'jpg', or 'png'."
         )
+    _validate_codec_options(
+        format=format,
+        jpeg_quality=jpeg_quality,
+        png_compression=png_compression,
+    )
 
-    pil_images = data.as_pil_images()
+    format_kwargs = {}
+    if format in ("jpeg", "jpg") and jpeg_quality is not None:
+        format_kwargs["quality"] = jpeg_quality
+    elif format == "png" and png_compression is not None:
+        format_kwargs["compress_level"] = png_compression
+
+    pil_images = data.as_pil_images(channel_layout=channel_layout)
     compressed_data = []
-    for img in pil_images:
+    for frame_index, img in enumerate(pil_images):
         buf = io.BytesIO()
         pil_format = "JPEG" if format in ("jpeg", "jpg") else "PNG"
-        img.save(buf, format=pil_format)
+        try:
+            img.save(buf, format=pil_format, **format_kwargs)
+        except Exception as exc:
+            raise ValueError(
+                f"frame={frame_index}; format={format}; "
+                "failed to encode image"
+            ) from exc
         compressed_data.append(buf.getvalue())
     return compressed_data

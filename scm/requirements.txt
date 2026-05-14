@@ -50,6 +50,7 @@ pyright[nodejs]==1.1.408
 # build
 packaging>=25.0
 twine>=6.1.0
+requests-toolbelt>=1.0.0
 setuptools>=77.0.3,<80.0.0
 
 # ray

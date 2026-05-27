@@ -22,6 +22,10 @@ description: Load these instructions when creating, updating, or validating test
 - When a wrapper or adapter exposes both raw data and derived data for the same
   contract, test both the assembly logic and at least one end-to-end
   consistency path between the raw and derived representations.
+- When extracting shared behavior from existing callers, test the shared unit
+  directly and at least one caller boundary path that proves metadata
+  reconstruction, pass-through branches, or other caller-owned context still
+  survives the refactor.
 - For frame or transform adapters, prefer one narrow unit test that checks the
   naming and graph assembly rules and one integration-style test that checks
   numerical consistency against the real runtime source.

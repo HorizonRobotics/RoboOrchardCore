@@ -16,12 +16,15 @@
 
 
 import functools
+from typing import Generic
 
 import numpy as np
 import pytest
 import torch
 from pydantic import ValidationError
+from typing_extensions import TypeVar
 
+from robo_orchard_core.utils import config as config_module
 from robo_orchard_core.utils.config import (
     CallableConfig,
     CallableType,
@@ -109,6 +112,28 @@ class DummyConfigInitializerMetaCfg(
     class_type: ClassType[DummyConfigInitializerMeta] = (
         DummyConfigInitializerMeta
     )
+
+
+class TypeVarDefaultBaseConfig(Config):
+    base_value: int = 100
+
+
+class TypeVarDefaultChildConfig(TypeVarDefaultBaseConfig):
+    child_value: int = 200
+
+
+TypeVarDefaultConfigType_co = TypeVar(
+    "TypeVarDefaultConfigType_co",
+    bound=TypeVarDefaultBaseConfig,
+    covariant=True,
+    default=TypeVarDefaultBaseConfig,
+)
+
+
+class TypeVarDefaultHolderConfig(
+    Config, Generic[TypeVarDefaultConfigType_co]
+):
+    cfg: TypeVarDefaultConfigType_co
 
 
 class TestSimpleConfig:
@@ -320,6 +345,11 @@ class TensorConfig(Config):
 
 
 class TestTensorConfig:
+    def test_model_json_schema_supports_numpy_tensor(self):
+        schema = TensorConfig.model_json_schema()
+
+        assert "np_tensor" in schema["properties"]
+
     def test_np_tensor(self):
         np_tensor = np.array([[1, 2.22], [3, 4]])
         config = TensorConfig(np_tensor=np_tensor, torch_tensor=None)
@@ -341,6 +371,43 @@ class TestTensorConfig:
         print("json_str:", json_str)
         assert isinstance(new_config.torch_tensor, torch.Tensor)
         assert torch.equal(new_config.torch_tensor, torch_tensor)
+
+
+class TestTypeVarDefaultConfig:
+    def test_pydantic_213_uses_polymorphic_serialization_not_patch(self):
+        if not config_module._pydantic_version_at_least(2, 13):
+            pytest.skip("Pydantic < 2.13 needs the TypeVar schema patch.")
+
+        assert config_module._PYDANTIC_SUPPORTS_POLYMORPHIC_SERIALIZATION
+        assert not config_module._TYPEVAR_DEFAULT_SCHEMA_PATCH_ENABLED
+
+    def test_typevar_default_serializes_runtime_subclass_fields(self):
+        config = TypeVarDefaultHolderConfig(
+            cfg=TypeVarDefaultChildConfig(base_value=10, child_value=20)
+        )
+
+        json_str = config.to_str(format="json")
+        new_config = TypeVarDefaultHolderConfig.from_str(
+            json_str, format="json"
+        )
+
+        assert config.to_dict() == {
+            "cfg": {"base_value": 10, "child_value": 20}
+        }
+        assert isinstance(new_config.cfg, TypeVarDefaultChildConfig)
+        assert new_config.to_dict() == config.to_dict()
+
+    def test_explicit_polymorphic_serialization_false_is_respected(self):
+        if not config_module._PYDANTIC_SUPPORTS_POLYMORPHIC_SERIALIZATION:
+            pytest.skip("Pydantic < 2.13 does not support this dump option.")
+
+        config = TypeVarDefaultHolderConfig(
+            cfg=TypeVarDefaultChildConfig(base_value=10, child_value=20)
+        )
+
+        assert config.to_dict(polymorphic_serialization=False) == {
+            "cfg": {"base_value": 10}
+        }
 
 
 class TestConfigSaveLoad:

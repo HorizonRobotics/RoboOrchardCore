@@ -34,7 +34,6 @@ from numpydantic import NDArray
 from pydantic import (
     BaseModel,
     ConfigDict,
-    GenerateSchema,
     SerializationInfo,
     SerializerFunctionWrapHandler,
     ValidatorFunctionWrapHandler,
@@ -48,6 +47,7 @@ from pydantic.functional_validators import (
     PlainValidator,
     model_validator,
 )
+from pydantic.version import VERSION as PYDANTIC_VERSION
 from pydantic_core import core_schema, from_json, to_json
 from typing_extensions import Callable, ParamSpec, Self, TypeVar
 
@@ -72,43 +72,84 @@ PYDANTIC_CONFIGCLASS = Registry("PYDANTIC_CONFIGCLASS")
 TOML_NULL = "null"
 
 
-@patch_class_method(GenerateSchema, "_unsubstituted_typevar_schema")
-def _wrap_unsubstituted_typevar_schema(self, typevar: TypeVar):
-    """Wraps the default `_unsubstituted_typevar_schema` method.
+def _pydantic_version_part(part: str) -> int:
+    digits = []
+    for char in part:
+        if not char.isdigit():
+            break
+        digits.append(char)
+    return int("".join(digits) or "0")
 
-    This patch is used to support the serialization of TypeVar with default
-    values that are the same as the bound type.
 
-    """
+def _pydantic_version_at_least(major: int, minor: int) -> bool:
+    release = PYDANTIC_VERSION.split("+", 1)[0].split("-", 1)[0].split(".")
+    padded_release = [*release, "0", "0"]
+    current = (
+        _pydantic_version_part(padded_release[0]),
+        _pydantic_version_part(padded_release[1]),
+    )
+    return current >= (major, minor)
 
-    assert isinstance(typevar, typing.TypeVar)
 
-    bound = typevar.__bound__
+_PYDANTIC_SUPPORTS_POLYMORPHIC_SERIALIZATION = _pydantic_version_at_least(
+    2, 13
+)
+_TYPEVAR_DEFAULT_SCHEMA_PATCH_ENABLED = (
+    not _PYDANTIC_SUPPORTS_POLYMORPHIC_SERIALIZATION
+)
 
+
+def _with_polymorphic_serialization(kwargs: dict[str, Any]) -> dict[str, Any]:
+    if _PYDANTIC_SUPPORTS_POLYMORPHIC_SERIALIZATION:
+        kwargs.setdefault("polymorphic_serialization", True)
+    return kwargs
+
+
+if _TYPEVAR_DEFAULT_SCHEMA_PATCH_ENABLED:
     try:
-        typevar_has_default = typevar.has_default()  # type: ignore
-    except AttributeError:
-        typevar_has_default = getattr(typevar, "__default__", None) is not None
+        from pydantic._internal._generate_schema import GenerateSchema
+    except ImportError:
+        from pydantic import GenerateSchema  # type: ignore
 
-    if (
-        typevar_has_default
-        and bound is not None
-        and (
-            typing.get_origin(bound)
-            == typing.get_origin(
-                typevar.__default__,
-            )
-        )
-    ):
-        schema = self.generate_schema(bound)
-        schema["serialization"] = (
-            core_schema.wrap_serializer_function_ser_schema(
-                lambda x, h: h(x), schema=core_schema.any_schema()
-            )
-        )
-        return schema
+    @patch_class_method(GenerateSchema, "_unsubstituted_typevar_schema")
+    def _wrap_unsubstituted_typevar_schema(self, typevar: TypeVar):
+        """Wraps the default `_unsubstituted_typevar_schema` method.
 
-    return self.__old__unsubstituted_typevar_schema(typevar)
+        This patch is used to support the serialization of TypeVar with
+        default values that are the same as the bound type.
+
+        """
+
+        assert isinstance(typevar, typing.TypeVar)
+
+        bound = typevar.__bound__
+
+        try:
+            typevar_has_default = typevar.has_default()  # type: ignore
+        except AttributeError:
+            typevar_has_default = (
+                getattr(typevar, "__default__", None) is not None
+            )
+
+        if (
+            typevar_has_default
+            and bound is not None
+            and (
+                typing.get_origin(bound)
+                == typing.get_origin(
+                    typevar.__default__,
+                )
+            )
+        ):
+            schema = self.generate_schema(bound)
+            schema["serialization"] = (
+                core_schema.wrap_serializer_function_ser_schema(
+                    lambda x, h: h(x), schema=core_schema.any_schema()
+                )
+            )
+            return schema
+
+        return self.__old__unsubstituted_typevar_schema(typevar)
 
 
 def is_lambda_expression(name: str) -> bool:
@@ -571,6 +612,7 @@ class Config(BaseModel):
         context = {
             "exclude_config_type": not include_config_type,
         }
+        _with_polymorphic_serialization(kwargs)
         ret = self.model_dump(
             mode=mode,
             exclude_unset=exclude_unset,
@@ -643,7 +685,7 @@ class Config(BaseModel):
                 "exclude_config_type": not include_config_type,
             },
             round_trip=round_trip,
-            **kwargs,
+            **_with_polymorphic_serialization(kwargs),
         )
 
         if format == "json":

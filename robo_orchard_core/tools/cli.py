@@ -208,6 +208,8 @@ def load_cli_extensions(
             loaded_spec = loaded_specs.get(entry_point.name)
             entry_point_spec = getattr(entry_point, "value", None)
             if loaded_spec is not None:
+                if entry_point_spec == loaded_spec:
+                    continue
                 print(
                     f"Warning: Skipping {label} '{entry_point.name}' from "
                     f"{_display_spec(entry_point_spec)} because command is "

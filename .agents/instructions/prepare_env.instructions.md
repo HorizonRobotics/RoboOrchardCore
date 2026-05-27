@@ -43,10 +43,12 @@ description: Load these instructions when preparing a fresh local development en
   ```
 
 - Otherwise, create a project-local virtual environment with system site
-  packages:
+  packages and verify the selected interpreter immediately:
 
   ```bash
   python -m venv .venv --system-site-packages
+  .venv/bin/python -c "import sys; print(sys.executable)"
+  .venv/bin/pip --version
   ```
 
 - When using a project-local virtual environment, use explicit
@@ -57,22 +59,42 @@ description: Load these instructions when preparing a fresh local development en
   .venv/bin/pip -V
   ```
 
+- If the selected environment does not provide a new enough pip for the
+  editable install path, upgrade pip inside that environment before
+  installing the package:
+
+  ```bash
+  .venv/bin/python -m pip install --upgrade pip
+  ```
+
 - Treat the shared workspace-root `.venv` as the default development path
   when this repository is used inside a parent workspace that owns that
   environment.
 - Otherwise, treat a project-local `.venv` plus local editable install as
   the default standalone development path unless the task or confirmed
   runtime constraints require another environment.
+- Because this repository's `make` targets call `pip3` directly, do not use
+  `make install-editable` for first-time setup unless the selected
+  environment's `pip3` is already confirmed on PATH. Prefer the selected
+  environment's explicit Python executable instead.
 - Install the project in editable mode with the selected environment's
-  explicit Python executable. For a project-local `.venv`, for example:
+  explicit Python executable. For a project-local `.venv`, mirror the
+  default editable install extras, for example:
 
   ```bash
-  .venv/bin/python -m pip install -e .
+  .venv/bin/python -m pip install --config-settings editable_mode=compat -e .[all]
   ```
 
-- Install extra development dependencies only when needed by the task. Use
-  repository sources of truth such as `Makefile`, `pyproject.toml`, and
-  `scm/requirements.txt`.
+- Install extra development dependencies only when needed by the task. For a
+  project-local `.venv`, for example:
+
+  ```bash
+  .venv/bin/python -m pip install -r scm/requirements.txt
+  .venv/bin/pre-commit install
+  ```
+
+- Use repository sources of truth such as `Makefile`, `pyproject.toml`, and
+  `scm/requirements.txt` when adapting that sequence.
 
 ## Cache and Data Expectations
 

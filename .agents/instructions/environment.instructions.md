@@ -17,8 +17,13 @@ description: Load these instructions when tasks depend on the active Python envi
   temporary files, notes, generated descriptions, and other disposable
   artifacts. Use system `/tmp/` only when a tool explicitly requires it or
   when a path must be shared through a system-level temporary location.
-- If no project-local `.venv/` is available at either level, fall back to
-  the active environment.
+- If no workspace-root or repository-local `.venv/` is available and the
+  task is first-time setup, an intentional environment rebuild, installing
+  repository dependencies, or the first local execution of repository code,
+  switch to `.agents/instructions/prepare_env.instructions.md` and follow
+  its bootstrap sequence instead of defaulting to the active environment.
+- If no applicable `.venv/` is available and the task does not require
+  repository setup, fall back to the active environment.
 - If task requirements or confirmed runtime dependencies require a
   different environment, state that reason before switching.
 - Prefer explicit executables from the selected virtual environment over
@@ -38,9 +43,14 @@ description: Load these instructions when tasks depend on the active Python envi
 - Do not assume optional extras, developer tools, or external services are installed.
 - Check environment-dependent requirements before running related validation.
 - If running repository code fails because `robo_orchard_core` is not
-  installed from the local checkout, prefer `make install-editable` or the
-  selected environment's explicit `python -m pip install -e .` command before
-  changing code or treating it as an external dependency.
+  installed from the local checkout, prefer the selected environment's
+  explicit `python -m pip install --config-settings editable_mode=compat -e
+  .[all]` command before changing code or treating it as an external
+  dependency. Use `make install-editable` only after confirming that the same
+  environment's `pip3` is the one that Make will execute, for example by
+  checking that `command -v pip3` resolves inside the selected environment.
+  If that check does not point at the selected environment, keep using the
+  explicit `python -m pip ...` command path.
 
 ## Runtime and Reporting
 

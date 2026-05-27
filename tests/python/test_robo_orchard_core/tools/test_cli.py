@@ -110,7 +110,7 @@ class TestCli:
             in captured.err
         )
 
-    def test_same_spec_duplicate_entry_point_warns_and_skips(
+    def test_same_spec_duplicate_entry_point_skips_without_warning(
         self, monkeypatch, capsys
     ):
         target = "robo_orchard_core.tools.simple_file_server:cli_app"
@@ -134,16 +134,7 @@ class TestCli:
 
         assert result.exit_code == 0, result.output
         assert "Allow serving files through symlinks." in result.output
-        assert (
-            "Skipping CLI extension 'file-server' from "
-            "'robo_orchard_core.tools.simple_file_server:cli_app'"
-            in captured.err
-        )
-        assert (
-            "already loaded from "
-            "'robo_orchard_core.tools.simple_file_server:cli_app'"
-            in captured.err
-        )
+        assert captured.err == ""
 
     def test_missing_builtin_dependency_keeps_placeholder_command(
         self, monkeypatch

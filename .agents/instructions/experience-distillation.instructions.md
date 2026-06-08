@@ -21,6 +21,15 @@ implementation, design, review, debugging, or workflow iteration.
 - If the user asks what can be distilled or whether guidance should change,
   report candidate lessons and destinations first unless they explicitly ask
   for immediate edits.
+- For long-running, resumed, or heavily iterative tasks, evaluate the whole
+  current conversation when identifying distillation candidates. Include
+  design decisions, review feedback, debugging outcomes, implementation
+  corrections, validation choices, and git workflow lessons instead of only
+  inspecting the latest design note or code diff.
+- When reporting candidates from a broad session, classify them by intended
+  asset type, such as instruction/workflow rule, reference/guideline,
+  template/scaffold, implementation-validated follow-up, or task-local detail
+  that should stay out of shared guidance.
 - Update assets by layer:
   - `AGENTS.md` for scope, precedence, and routing only
   - `.agents/instructions/*.md` for applicability and read-first behavior

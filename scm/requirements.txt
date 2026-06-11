@@ -9,6 +9,9 @@ pytest-asyncio
 pytest-mock
 allure-pytest
 filelock
+# Keep the CI image on NumPy 1.x until NumPy 2 ABI dependencies are updated.
+numpy<2
+numpydantic>=1.8.1,<1.9
 opencv-python
 scipy>=1.15
 # doc

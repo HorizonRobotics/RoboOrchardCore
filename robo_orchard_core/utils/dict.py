@@ -14,8 +14,11 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
+import json
 from collections import OrderedDict
-from typing import Any
+from typing import Any, Literal
+
+__all__ = ["flatten_dict"]
 
 
 def flatten_dict(
@@ -23,8 +26,15 @@ def flatten_dict(
     parent_key: str = "",
     sep: str = "/",
     keep_order: bool = False,
+    sequence_mode: Literal["flatten", "json"] = "flatten",
 ) -> dict[str, Any]:
-    """Flatten a nested dictionary or list into a flat dictionary.
+    """Flatten nested mappings and sequences into a flat dictionary.
+
+    Nested dictionaries are always flattened. By default, nested lists and
+    tuples are also flattened into ``index_<n>`` keys. Set
+    ``sequence_mode="json"`` to keep each nested sequence as one leaf value
+    serialized to compact JSON; the JSON encoder recursively handles any
+    mappings or sequences inside that sequence.
 
     For example, given the following dictionary:
 
@@ -50,14 +60,34 @@ def flatten_dict(
         }
 
     Args:
-        d (dict|list|tuple): The dictionary or list to flatten.
-        parent_key (str): The parent key of the dictionary.
-        sep (str): The separator to use between keys.
-        keep_order (bool): Whether to keep the order of the items.
+        d (dict | list | tuple): The dictionary or sequence to flatten.
+        parent_key (str, optional): Parent key prepended to flattened keys.
+            Default is ``""``.
+        sep (str, optional): Separator between flattened key components.
+            Default is ``"/"``.
+        keep_order (bool, optional): Whether to return an ordered mapping.
+            Default is ``False``.
+        sequence_mode (Literal["flatten", "json"], optional): How nested
+            list and tuple values are represented. ``"flatten"`` recursively
+            expands them into indexed keys; ``"json"`` serializes each
+            complete sequence subtree as compact JSON. Default is
+            ``"flatten"``.
 
     Returns:
-        dict: The flattened dictionary.
+        dict[str, Any]: The flattened dictionary.
+
+    Raises:
+        TypeError: If ``d`` is not a dictionary, list, or tuple, or if a
+            sequence selected for JSON serialization contains unsupported
+            values.
+        ValueError: If ``sequence_mode`` is unsupported.
     """
+
+    if sequence_mode not in ("flatten", "json"):
+        raise ValueError(
+            "sequence_mode must be either 'flatten' or 'json', "
+            f"got {sequence_mode!r}."
+        )
 
     items = []
     if isinstance(d, dict):
@@ -74,12 +104,31 @@ def flatten_dict(
         if isinstance(k, int):
             k = f"index_{k}"
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, (dict, list, tuple)):
+        if isinstance(v, dict) or (
+            sequence_mode == "flatten" and isinstance(v, (list, tuple))
+        ):
             items.extend(
                 flatten_dict(
-                    v, new_key, sep=sep, keep_order=keep_order
+                    v,
+                    new_key,
+                    sep=sep,
+                    keep_order=keep_order,
+                    sequence_mode=sequence_mode,
                 ).items()
             )
+        elif isinstance(v, (list, tuple)):
+            try:
+                serialized_value = json.dumps(
+                    v,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            except (TypeError, ValueError) as exc:
+                raise TypeError(
+                    f"Sequence at key {new_key!r} is not JSON serializable: "
+                    f"{exc}"
+                ) from exc
+            items.append((new_key, serialized_value))
         else:
             items.append((new_key, v))
     if keep_order:

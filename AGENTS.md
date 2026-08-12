@@ -29,8 +29,9 @@ Reusable agent-facing templates live in `.agents/templates/`.
   readiness:
   `.agents/references/design-doc-guideline.md` and
   `.agents/templates/design-doc-scaffold.md`
-- Key interface docstrings for public classes/functions or boundary helpers
-  whose safe use is not obvious from the signature alone, including
+- Key interface docstrings for public classes/functions, boundary helpers,
+  structured fields, or key module/class/instance variables whose safe use is
+  not obvious from the signature or assignment alone, including
   resource-owning or stateful interfaces:
   `.agents/references/interface-docstring-guideline.md`; use
   `.agents/templates/interface-docstring-scaffold.md` only when a short

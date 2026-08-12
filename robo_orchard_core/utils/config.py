@@ -48,7 +48,7 @@ from pydantic.functional_validators import (
     model_validator,
 )
 from pydantic.version import VERSION as PYDANTIC_VERSION
-from pydantic_core import core_schema, from_json, to_json
+from pydantic_core import PydanticCustomError, core_schema, from_json, to_json
 from typing_extensions import Callable, ParamSpec, Self, TypeVar
 
 from robo_orchard_core.utils.logging import LoggerManager
@@ -639,6 +639,10 @@ class Config(BaseModel):
         '__config_type__' key to the dictionary and converts the dictionary
         to a string by default.
 
+        YAML output keeps ordinary strings plain, renders strings containing
+        only trailing line feeds with explicit double-quoted escapes, and
+        renders true multiline content with literal block scalars.
+
         For config that does not need '__config_type__' key, set
         `__exclude_config_type__` to True in the config class or
         set `include_config_type` to False in the method call.
@@ -695,7 +699,12 @@ class Config(BaseModel):
             return toml.dumps(data, none_value=TOML_NULL, **toml_kwargs)
         elif format == "yaml":
             data = from_json(json_str)
-            ret = yaml.dump(data, sort_keys=False, **yaml_kwargs)
+            ret = yaml.dump(
+                data,
+                Dumper=_ConfigYamlDumper,
+                sort_keys=False,
+                **yaml_kwargs,
+            )
             assert isinstance(ret, str)
             return ret
         else:
@@ -784,18 +793,50 @@ class Config(BaseModel):
             f.write(data_str)  # type: ignore
 
     @overload
-    @staticmethod
-    def load(path: str, ensure_type: None = None) -> Any:
+    @classmethod
+    def load(
+        cls: type[Self],
+        path: str,
+        ensure_type: None = None,
+    ) -> Self:
         pass
 
     @overload
-    @staticmethod
-    def load(path: str, ensure_type: type[ConfigT]) -> ConfigT:
+    @classmethod
+    def load(
+        cls: type[Self],
+        path: str,
+        ensure_type: type[ConfigT],
+    ) -> ConfigT:
         pass
 
-    @staticmethod
-    def load(path: str, ensure_type: type[ConfigT] | None = None):
-        return load_from(path, ensure_type=ensure_type)
+    @classmethod
+    def load(
+        cls: type[Self],
+        path: str,
+        ensure_type: type[ConfigT] | None = None,
+    ) -> Self | ConfigT:
+        """Load a configuration from a JSON, TOML, or YAML file.
+
+        A top-level ``__config_type__`` discriminator takes precedence when
+        present. Without one, an explicit ``ensure_type`` is used as the
+        target type; calls through a concrete subclass, such as
+        ``MyConfig.load(path)``, use that subclass as the target type.
+
+        Args:
+            path (str): Configuration file path.
+            ensure_type (type[ConfigT] | None, optional): Expected result type
+                and fallback target when the file has no top-level type
+                discriminator. Default is None.
+
+        Returns:
+            Self | ConfigT: Loaded configuration instance.
+        """
+        if ensure_type is not None:
+            return load_from(path, ensure_type=ensure_type)
+        if cls is Config:
+            return load_from(path)
+        return load_from(path, ensure_type=cls)
 
 
 class ClassConfig(Config, Generic[T_co]):
@@ -913,7 +954,9 @@ ConfigT = TypeVar("ConfigT", bound=Config)
 
 
 def load_config_class(
-    data: str | dict, format: Literal["json", "toml", "yaml"] = "json"
+    data: str | dict,
+    format: Literal["json", "toml", "yaml"] = "json",
+    fallback_type: type[Config] | None = None,
 ) -> Any:
     """Loads the configuration class from a JSON string or dictionary.
 
@@ -921,6 +964,9 @@ def load_config_class(
         data (str | dict): The string data or dictionary.
         format (str): The format of the string input data. Can be 'json',
             'yaml' or 'toml'. Default is 'json'.
+        fallback_type (type[Config] | None, optional): Target type used when
+            the input has no top-level ``__config_type__`` discriminator.
+            Default is None.
     """
     if isinstance(data, str):
         if format == "json":
@@ -935,11 +981,13 @@ def load_config_class(
         if "__config_type__" in data:
             data = deepcopy(data)
             target_cls = string_to_callable(data.pop("__config_type__"))
-            return target_cls.model_validate(data)
+        elif fallback_type is not None:
+            target_cls = fallback_type
         else:
             raise ValueError(
                 "The input data does not contain '__config_type__' key."
             )
+        return target_cls.model_validate(data)
     raise ValueError("The input data is not a dictionary or string.")
 
 
@@ -954,17 +1002,38 @@ def load_from(path: str, ensure_type: type[ConfigT]) -> ConfigT:
 
 
 def load_from(path: str, ensure_type: type[ConfigT] | None = None):
-    """Loads the configuration class from a file."""
+    """Load a configuration from a file and optionally constrain its type.
+
+    ``ensure_type`` is used as the target type when the file has no top-level
+    ``__config_type__`` discriminator. When the discriminator is present, it
+    determines the concrete type and ``ensure_type`` remains a post-load type
+    check.
+
+    Args:
+        path (str): JSON, TOML, or YAML configuration file path.
+        ensure_type (type[ConfigT] | None, optional): Expected result type and
+            fallback target for files without a top-level discriminator.
+            Default is None.
+
+    Returns:
+        Any: Loaded configuration, narrowed to ``ConfigT`` when
+        ``ensure_type`` is provided.
+    """
     with fsspec.open(path, "r") as f:
         data = f.read()  # type: ignore
         if path.endswith(".json"):
-            ret = load_config_class(data, format="json")
+            config_format = "json"
         elif path.endswith(".toml"):
-            ret = load_config_class(data, format="toml")
+            config_format = "toml"
         elif path.endswith(".yaml") or path.endswith(".yml"):
-            ret = load_config_class(data, format="yaml")
+            config_format = "yaml"
         else:
             raise ValueError(f"Unsupported file format: {path}.")
+        ret = load_config_class(
+            data,
+            format=config_format,
+            fallback_type=ensure_type,
+        )
 
     if ensure_type is not None and not isinstance(ret, ensure_type):
         raise TypeError(
@@ -991,11 +1060,114 @@ def add_cfg_type_ser_wrap(v: Any, nxt: SerializerFunctionWrapHandler) -> Any:
     return nxt(v)
 
 
+class _ConfigInstanceOfValidator:
+    """Enforce the concrete or TypeVar-bound config type at runtime."""
+
+    def __get_pydantic_core_schema__(
+        self,
+        source_type: Any,
+        _handler: Any,
+    ) -> core_schema.CoreSchema:
+        expected_type = source_type
+        if isinstance(expected_type, TypeVar):
+            expected_type = expected_type.__bound__ or Config
+        generic_origin = typing.get_origin(expected_type)
+        pydantic_generic_metadata = getattr(
+            expected_type,
+            "__pydantic_generic_metadata__",
+            None,
+        )
+        if generic_origin is None and isinstance(
+            pydantic_generic_metadata, dict
+        ):
+            generic_origin = pydantic_generic_metadata.get("origin")
+        if generic_origin is not None:
+            expected_type = generic_origin
+
+        expected_type_name = getattr(
+            expected_type,
+            "__name__",
+            str(expected_type),
+        )
+
+        def validate(value: Any) -> Any:
+            if isinstance(value, (str, dict)):
+                value = load_config_class(value)
+            if not isinstance(value, expected_type):
+                raise PydanticCustomError(
+                    "is_instance_of",
+                    "Input should be an instance of {class_name}",
+                    {"class_name": expected_type_name},
+                )
+            return value
+
+        return core_schema.no_info_plain_validator_function(
+            validate,
+            metadata={
+                "pydantic_js_input_core_schema": core_schema.union_schema(
+                    [
+                        core_schema.str_schema(),
+                        core_schema.typed_dict_schema(
+                            {
+                                "__config_type__": (
+                                    core_schema.typed_dict_field(
+                                        core_schema.str_schema()
+                                    )
+                                )
+                            },
+                            extra_behavior="allow",
+                        ),
+                    ]
+                )
+            },
+        )
+
+
 ConfigInstanceOf = Annotated[
     ConfigT,
-    PlainValidator(
-        lambda x: load_config_class(x) if isinstance(x, (str, dict)) else x
-    ),
+    _ConfigInstanceOfValidator(),
     WrapSerializer(add_cfg_type_ser_wrap, when_used="always"),
 ]
-"""Type annotation template for any config class instance."""
+"""Preserve concrete config types while enforcing a declared config family.
+
+Use ``ConfigInstanceOf[BaseConfig]`` for a field that accepts ``BaseConfig``
+or any of its subclasses. Serialization preserves the concrete config's
+``__config_type__`` discriminator; deserialization restores that concrete
+type and then verifies it is an instance of the declared base type or TypeVar
+bound.
+
+This contract is stronger than ``SerializeAsAny`` alone. ``SerializeAsAny``
+can preserve subclass fields during Pydantic serialization, but it neither
+provides RoboOrchard's concrete-type discriminator nor enforces that the
+restored object belongs to the field's expected config family.
+"""
+
+
+class _ConfigYamlDumper(yaml.SafeDumper):
+    """Render configuration strings with readable YAML scalar styles."""
+
+
+def _represent_config_yaml_string(
+    dumper: yaml.SafeDumper,
+    value: str,
+) -> yaml.ScalarNode:
+    """Choose YAML scalar style while preserving every newline exactly."""
+    if "\n" not in value:
+        style = None
+    elif "\n" not in value.rstrip("\n"):
+        # Make otherwise invisible trailing line feeds explicit.
+        style = '"'
+    else:
+        # Let PyYAML select |-, |, or |+ from the trailing line feeds.
+        style = "|"
+    return dumper.represent_scalar(
+        "tag:yaml.org,2002:str",
+        value,
+        style=style,
+    )
+
+
+_ConfigYamlDumper.add_representer(
+    str,
+    _represent_config_yaml_string,
+)

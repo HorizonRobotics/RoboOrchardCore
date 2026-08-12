@@ -39,11 +39,13 @@ This file owns only the root assembly and extension-loading boundary.
 Feature packages should expose Typer apps through the canonical
 ``robo_orchard.cli`` entry point group instead of patching this module. The
 root CLI mounts those apps by entry point name and does not import feature
-implementations directly. Entry points are loaded in deterministic name order;
+implementations directly. A direct invocation of a known top-level command
+loads only that command; root help and unknown-command handling load the full
+tree. Entry points are loaded in deterministic name order;
 ``robo_orchard.cli`` is loaded before the legacy ``robo_orchard.plugins``
 group, and an already loaded command name wins with a warning instead of being
 silently overwritten. Duplicate-name warnings identify both the spec that stays
-loaded and the spec that was skipped.
+loaded and the spec that was skipped when the complete tree is assembled.
 
 Built-in commands belong here only when the command name is core-owned or must
 remain visible without optional extras. Register those built-ins by
@@ -58,6 +60,7 @@ startup validation should fail fast instead.
 """
 
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from importlib.metadata import entry_points
@@ -99,12 +102,18 @@ BUILTIN_CLI_EXTENSIONS = {
 }
 
 
-def create_app(load_extensions: bool = True) -> typer.Typer:
+def create_app(
+    load_extensions: bool = True,
+    *,
+    requested_command: str | None = None,
+) -> typer.Typer:
     """Create the RoboOrchard root CLI app.
 
     Args:
         load_extensions (bool, optional): Whether to load built-in and
             entry-point CLI extensions. Default is True.
+        requested_command (str, optional): Load only this known top-level
+            command. Default is None, which loads the complete command tree.
 
     Returns:
         typer.Typer: Root Typer application for the ``robo-orchard`` command.
@@ -118,7 +127,10 @@ def create_app(load_extensions: bool = True) -> typer.Typer:
     )
 
     if load_extensions:
-        load_cli_extensions(cli_app)
+        load_cli_extensions(
+            cli_app,
+            requested_command=requested_command,
+        )
 
     return cli_app
 
@@ -127,6 +139,7 @@ def load_cli_extensions(
     cli_app: typer.Typer,
     *,
     strict: bool = False,
+    requested_command: str | None = None,
 ) -> None:
     """Mount built-in and plugin Typer apps onto a root CLI app.
 
@@ -142,6 +155,9 @@ def load_cli_extensions(
         strict (bool, optional): Whether loading failures should raise
             ``RuntimeError`` instead of printing warnings and continuing.
             Default is False.
+        requested_command (str, optional): Load only this top-level command.
+            Root help and unknown-command dispatch leave this unset so the
+            complete command tree remains available. Default is None.
 
     Raises:
         RuntimeError: If ``strict`` is True and a built-in or plugin extension
@@ -149,6 +165,11 @@ def load_cli_extensions(
     """
     loaded_specs: dict[str, str] = {}
     for builtin_name, builtin_extension in BUILTIN_CLI_EXTENSIONS.items():
+        if (
+            requested_command is not None
+            and builtin_name != requested_command
+        ):
+            continue
         missing_modules = _missing_modules(builtin_extension.required_modules)
         if missing_modules:
             cli_app.add_typer(
@@ -204,6 +225,11 @@ def load_cli_extensions(
             key=lambda item: item.name,
         )
         for entry_point in discovered_extensions:
+            if (
+                requested_command is not None
+                and entry_point.name != requested_command
+            ):
+                continue
             label = "legacy plugin" if is_legacy else "CLI extension"
             loaded_spec = loaded_specs.get(entry_point.name)
             entry_point_spec = getattr(entry_point, "value", None)
@@ -294,12 +320,36 @@ def load_plugins(cli_app: typer.Typer) -> None:
     load_cli_extensions(cli_app)
 
 
-app = create_app()
+def _requested_command(arguments: Sequence[str]) -> str | None:
+    """Return a known direct subcommand eligible for lazy app assembly."""
+
+    if not arguments or arguments[0].startswith("-"):
+        return None
+    command_name = arguments[0]
+    if command_name in BUILTIN_CLI_EXTENSIONS:
+        return command_name
+    for group in (CLI_ENTRY_POINT_GROUP, LEGACY_PLUGIN_ENTRY_POINT_GROUP):
+        if any(
+            entry_point.name == command_name
+            for entry_point in entry_points(group=group)
+        ):
+            return command_name
+    return None
+
+
+def __getattr__(name: str) -> typer.Typer:
+    """Build the complete legacy root app only for direct module consumers."""
+
+    if name != "app":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    full_app = create_app()
+    globals()[name] = full_app
+    return full_app
 
 
 def main() -> None:
     """Run the installed ``robo-orchard`` console script."""
-    app()
+    create_app(requested_command=_requested_command(sys.argv[1:]))()
 
 
 if __name__ == "__main__":

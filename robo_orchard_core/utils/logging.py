@@ -84,7 +84,9 @@ class LoggerManager:
             DEFAULT_LOG_FORMAT.
         level (int, optional): The level of the log. Defaults to logging.INFO.
         handlers (Optional[list[logging.Handler]], optional): The handlers of
-            the log. Defaults to None.
+            the log. When the manager owns handlers, records stop propagating
+            to ancestor loggers. A handlerless manager delegates output to the
+            root logger. Defaults to None.
 
     """
 
@@ -180,7 +182,11 @@ class LoggerManager:
         return self
 
     def set_handlers(self, handlers: list[logging.Handler]) -> Self:
-        """Set the handlers of the logger.
+        """Set the handlers and select the logger that owns output.
+
+        A manager with one or more handlers emits records itself and disables
+        propagation so a configured root logger cannot emit them again. With
+        no handlers, the manager delegates records to its ancestors.
 
         Args:
             handlers (list[logging.Handler]): The handlers to set.
@@ -197,4 +203,5 @@ class LoggerManager:
                 handler.setFormatter(logging.Formatter(self._format))
                 handler.setLevel(self._level)
                 logger.addHandler(handler)
+            logger.propagate = not logger.handlers
         return self

@@ -50,6 +50,27 @@ durable to capture:
 - Update a skill when reusable workflow-specific execution logic or reporting
   expectations change.
 
+## Local Guidance Versus Memory
+
+Treat tracked repository assets as the durable repository-owned memory.
+External agent/session memory is useful, but it may not follow this repository
+into another checkout or execution environment.
+
+- Prefer `.agents`, `docs/`, package docs, or code-near TODOs when the lesson
+  is a stable repository rule, interface boundary, workflow requirement,
+  validation checklist, or decision that future maintainers should inherit
+  with the repository.
+- Prefer memory when the lesson is reusable context for future agent sessions
+  but too local for tracked guidance, such as environment quirks, one-off
+  branch state, operator preferences, exact successful commands, or older
+  rollout evidence.
+- Use both when appropriate: local guidance carries the durable rule, while
+  memory can preserve task-specific evidence, exact commands, or historical
+  context that would make tracked guidance noisy.
+- Before deciding that memory coverage is enough, explicitly ask whether the
+  stable part should be represented in tracked local guidance so it survives
+  environments without that memory.
+
 ## Placement Decision Questions
 
 Before editing guidance, ask:
@@ -71,10 +92,31 @@ requires them.
 When reporting candidate distillation items before editing, include:
 
 - proposed content
+- recommendation, such as apply now, defer, no-distill, or already covered
 - recommended destination
 - why it is worth keeping
 - whether it should be applied now or left as a candidate
 - any existing guidance it may overlap with
+- whether memory should also be updated, and why tracked local guidance is or
+  is not the right durable destination
+- user decision, initially pending unless the user already made an explicit
+  choice
+- agent objection, when the user's requested destination or action would make
+  guidance less accurate, less reusable, or unsafe to publish
+
+When the input is a retrospective list with more than a few items, prefer a
+coverage matrix before the final recommendation:
+
+| Lesson | Recommendation | Destination | Existing Coverage | Reason | User Decision | Agent Objection |
+| --- | --- | --- | --- | --- | --- | --- |
+
+Every original lesson should appear exactly once, or be intentionally merged
+with a nearby row. If a lesson is not recommended for guidance or memory,
+state whether it is already covered, task-local, unvalidated, or deferred.
+
+Recommendations should come before user decision. If the user chooses a path
+that conflicts with the promotion tests or repository publication rules, stop
+and state the objection instead of silently applying the update.
 
 ## Update Loop
 
@@ -96,7 +138,8 @@ task, treat deletion as the last step rather than routine cleanup.
 - Update the appropriate instruction, reference, template, or skill files
   when a durable lesson exists.
 - Keep one-off notes out of shared guidance when the lesson does not justify
-  an asset edit.
+  an asset edit; record memory only for reusable context that remains useful
+  without becoming tracked repository guidance.
 
 ## Anti-Patterns
 

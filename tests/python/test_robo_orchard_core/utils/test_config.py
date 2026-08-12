@@ -16,7 +16,7 @@
 
 
 import functools
-from typing import Generic
+from typing import Generic, Literal
 
 import numpy as np
 import pytest
@@ -32,6 +32,7 @@ from robo_orchard_core.utils.config import (
     ClassInitFromConfigMixin,
     ClassType,
     Config,
+    ConfigInstanceOf,
     NumpyTensor,
     TorchTensor,
     string_to_callable,
@@ -75,8 +76,31 @@ class DummyConfig(Config):
     int_value: int = 100
 
 
+class ExtendedDummyConfig(DummyConfig):
+    string_value: str = "child"
+
+
+class YamlStringConfig(Config):
+    value: str
+
+
 class DummyClassConfig(DummyConfig, ClassConfig[DummyConfig]):
     class_type: ClassType[DummyConfig] = DummyConfig
+
+
+class DummyConfigInstanceHolder(Config):
+    cfg: ConfigInstanceOf[DummyConfig]
+
+
+class DummyClassConfigInstanceHolder(Config):
+    cfg: ConfigInstanceOf[ClassConfig[DummyConfig]]
+
+
+DummyConfigType = TypeVar("DummyConfigType", bound=DummyConfig)
+
+
+class GenericDummyConfigInstanceHolder(Config, Generic[DummyConfigType]):
+    cfg: ConfigInstanceOf[DummyConfigType]
 
 
 class DummyConfig2(Config):
@@ -246,6 +270,113 @@ class TestSimpleClassConfig:
         assert isinstance(instance, DummyConfigInitializerMeta)
 
 
+class TestConfigInstanceOf:
+    @pytest.mark.parametrize(
+        "model_type",
+        [
+            DummyConfigInstanceHolder,
+            DummyClassConfigInstanceHolder,
+            GenericDummyConfigInstanceHolder,
+        ],
+    )
+    def test_model_json_schema_supports_config_instance_of(
+        self,
+        model_type: type[Config],
+    ) -> None:
+        schema = model_type.model_json_schema()
+
+        assert "cfg" in schema["properties"]
+
+    def test_model_json_schema_matches_config_instance_input_contract(
+        self,
+    ) -> None:
+        schema = DummyConfigInstanceHolder.model_json_schema()
+        cfg_schema = schema["properties"]["cfg"]
+        serialized_config_schema = cfg_schema["anyOf"][1]
+
+        assert cfg_schema["anyOf"][0] == {"type": "string"}
+        assert serialized_config_schema["type"] == "object"
+        assert serialized_config_schema["required"] == ["__config_type__"]
+        assert (
+            serialized_config_schema["properties"]["__config_type__"][
+                "type"
+            ]
+            == "string"
+        )
+
+        serialized_cfg = DummyConfig(int_value=200).to_dict(
+            include_config_type=True
+        )
+        holder = DummyConfigInstanceHolder.model_validate(
+            {"cfg": serialized_cfg}
+        )
+
+        assert holder.cfg == DummyConfig(int_value=200)
+
+        with pytest.raises(ValidationError, match="__config_type__"):
+            DummyConfigInstanceHolder.model_validate(
+                {"cfg": {"int_value": 200}}
+            )
+
+    @pytest.mark.parametrize("format", ["json", "yaml"])
+    def test_round_trip_preserves_valid_subclass(
+        self,
+        format: Literal["json", "yaml"],
+    ) -> None:
+        holder = DummyConfigInstanceHolder(
+            cfg=ExtendedDummyConfig(
+                int_value=200,
+                string_value="preserved",
+            )
+        )
+
+        restored = DummyConfigInstanceHolder.from_str(
+            holder.to_str(format=format),
+            format=format,
+        )
+
+        assert isinstance(restored.cfg, ExtendedDummyConfig)
+        assert restored.cfg.int_value == 200
+        assert restored.cfg.string_value == "preserved"
+
+    def test_rejects_unrelated_config_instance(self) -> None:
+        with pytest.raises(ValidationError, match="DummyConfig"):
+            DummyConfigInstanceHolder(
+                cfg=YamlStringConfig(  # type: ignore[arg-type]
+                    value="not a DummyConfig"
+                )
+            )
+
+    def test_rejects_deserialized_unrelated_config_type(self) -> None:
+        unrelated_config = YamlStringConfig(value="not a DummyConfig")
+
+        with pytest.raises(ValidationError, match="DummyConfig"):
+            DummyConfigInstanceHolder.model_validate(
+                {"cfg": unrelated_config.to_dict(include_config_type=True)}
+            )
+
+    def test_unresolved_typevar_uses_its_runtime_bound(self) -> None:
+        holder = GenericDummyConfigInstanceHolder(
+            cfg=DummyClassConfig(int_value=200)
+        )
+
+        assert isinstance(holder.cfg, DummyClassConfig)
+
+        with pytest.raises(ValidationError, match="DummyConfig"):
+            GenericDummyConfigInstanceHolder(
+                cfg=YamlStringConfig(  # type: ignore[arg-type]
+                    value="not a DummyConfig"
+                )
+            )
+
+    def test_parameterized_generic_uses_its_runtime_origin(self) -> None:
+        holder = DummyClassConfigInstanceHolder(
+            cfg=DummyClassConfig(int_value=200)
+        )
+
+        assert isinstance(holder.cfg, DummyClassConfig)
+
+
 class TestCallableConfig:
     def test_callable_config(self):
         config = DummyCallableConfig()
@@ -411,6 +542,65 @@ class TestTypeVarDefaultConfig:
 
 
 class TestConfigSaveLoad:
+    @pytest.mark.parametrize(
+        ("value", "expected_yaml"),
+        [
+            ("plain text", "value: plain text"),
+            ("<|start|>agent\n", 'value: "<|start|>agent\\n"'),
+            ("<|start|>agent\n\n", 'value: "<|start|>agent\\n\\n"'),
+            (
+                "first line\n\nsecond line",
+                "value: |-\n  first line\n\n  second line",
+            ),
+            (
+                "first line\nsecond line\n",
+                "value: |\n  first line\n  second line",
+            ),
+            (
+                "first line\nsecond line\n\n",
+                "value: |+\n  first line\n  second line",
+            ),
+        ],
+    )
+    def test_yaml_string_styles_round_trip(
+        self,
+        value: str,
+        expected_yaml: str,
+    ):
+        cfg = YamlStringConfig(value=value)
+
+        yaml_str = cfg.to_str(format="yaml")
+        restored = YamlStringConfig.from_str(yaml_str, format="yaml")
+
+        assert expected_yaml in yaml_str
+        assert restored == cfg
+        assert restored.value == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "plain text",
+            "<|start|>agent\n",
+            "<|start|>agent\n\n",
+            "first line\n\nsecond line",
+            "first line\nsecond line\n",
+            "first line\nsecond line\n\n",
+        ],
+    )
+    def test_yaml_string_styles_save_and_load(
+        self,
+        tmp_path,
+        value: str,
+    ):
+        cfg = YamlStringConfig(value=value)
+        path = tmp_path / "yaml_string_cfg.yaml"
+
+        cfg.save(str(path))
+        restored = Config.load(str(path), ensure_type=YamlStringConfig)
+
+        assert restored == cfg
+        assert restored.value == value
+
     def test_to_str_with_yaml_indent(self):
         cfg = DummyClassConfig2(
             cfg1=DummyClassConfig(int_value=200),
@@ -435,6 +625,66 @@ class TestConfigSaveLoad:
         loaded = Config.load(str(path), ensure_type=DummyConfig)
         assert isinstance(loaded, DummyConfig)
         assert loaded == cfg
+
+    @pytest.mark.parametrize("ext", ["json", "toml", "yaml"])
+    def test_load_without_config_type_uses_ensure_type(self, tmp_path, ext):
+        """An explicit expected type loads a headerless config file."""
+        cfg = DummyConfig(int_value=4321)
+        path = tmp_path / f"dummy_cfg.{ext}"
+        cfg.save(str(path), include_config_type=False)
+
+        loaded = Config.load(str(path), ensure_type=DummyConfig)
+
+        assert type(loaded) is DummyConfig
+        assert loaded == cfg
+
+    @pytest.mark.parametrize("ext", ["json", "toml", "yaml"])
+    def test_concrete_config_loads_without_config_type(self, tmp_path, ext):
+        """A concrete class load uses that class for headerless files."""
+        cfg = DummyConfig(int_value=4321)
+        path = tmp_path / f"dummy_cfg.{ext}"
+        cfg.save(str(path), include_config_type=False)
+
+        loaded = DummyConfig.load(str(path))
+
+        assert type(loaded) is DummyConfig
+        assert loaded == cfg
+
+    def test_base_config_load_without_type_information_fails(self, tmp_path):
+        """The base loader cannot infer a type from a headerless file."""
+        path = tmp_path / "dummy_cfg.json"
+        DummyConfig(int_value=4321).save(
+            str(path),
+            include_config_type=False,
+        )
+
+        with pytest.raises(ValueError, match="__config_type__"):
+            Config.load(str(path))
+
+    def test_file_config_type_takes_precedence_for_subclass_load(
+        self,
+        tmp_path,
+    ):
+        """A file discriminator preserves a compatible runtime subclass."""
+        cfg = ExtendedDummyConfig(
+            int_value=4321,
+            string_value="preserved",
+        )
+        path = tmp_path / "extended_dummy_cfg.yaml"
+        cfg.save(str(path))
+
+        loaded = DummyConfig.load(str(path))
+
+        assert type(loaded) is ExtendedDummyConfig
+        assert loaded == cfg
+
+    def test_subclass_load_rejects_unrelated_file_type(self, tmp_path):
+        """A concrete loader rejects an incompatible file discriminator."""
+        path = tmp_path / "yaml_string_cfg.yaml"
+        YamlStringConfig(value="unrelated").save(str(path))
+
+        with pytest.raises(TypeError, match="not of type DummyConfig"):
+            DummyConfig.load(str(path))
 
     def test_save_with_unsupported_ext(self, tmp_path):
         cfg = DummyConfig(int_value=1)

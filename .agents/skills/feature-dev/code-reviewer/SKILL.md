@@ -15,8 +15,9 @@ This skill intentionally preserves the original `agents/code-reviewer.md` conten
 - Confidence-based filtering to report only high-priority issues that truly matter
 
 **When triggered:**
-- Automatically in Phase 6 of `feature-dev`
-- Can be invoked manually after writing code
+- From Phase 6 of `feature-dev` when the selected review depth calls for a
+  delegated review
+- Manually after writing code
 
 **Output:**
 - Critical issues with confidence and rationale
@@ -27,6 +28,10 @@ This skill intentionally preserves the original `agents/code-reviewer.md` conten
 ## Review Scope
 
 By default, review the recent feature implementation or the files changed for the task. The user may specify a narrower or broader scope.
+
+This sub-skill defines the dimensions for one review pass, not a required
+reviewer count. By default, one delegated reviewer covers every applicable
+dimension and the main agent validates its candidates.
 
 ## Core Review Responsibilities
 
@@ -51,9 +56,13 @@ For feature implementations, also check whether the change introduced:
 - two public APIs expressing the same concept without a compatibility reason
 - tests that assert implementation details instead of behavior contracts
 - legacy or compatibility logic in the canonical execution path
+- repeated validation, readback, payload scans, retries, fallbacks, or cleanup
+  that do not protect a distinct trust boundary or failure mode
 
 Prefer concrete deletion, merge, or downgrade suggestions before proposing new
-abstractions.
+abstractions. Do not remove cheap fail-fast checks that reject invalid work
+before expensive processing, or ownership defenses that protect untrusted,
+mutable, concurrent, or irreversibly published state.
 
 ## Confidence Scoring
 
@@ -77,6 +86,15 @@ Start by clearly stating what you reviewed. For each high-confidence issue, prov
 - concrete fix suggestion
 
 Group issues by severity such as Critical and Important. If no high-confidence issues exist, say so briefly.
+
+## Delegated Review Status
+
+If review work is delegated to another agent or reviewer process, distinguish
+between a completed review with no findings and a review that timed out,
+failed, or was cancelled. Inspect the delegated review status before reporting
+results. If the delegated review did not complete, either wait when useful,
+continue with a local review, or report that the delegated review produced no
+usable result; do not summarize a non-returned review as "no findings."
 
 ## Quality Bar
 

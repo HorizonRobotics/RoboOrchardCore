@@ -16,6 +16,7 @@
 
 import ast
 import inspect
+import sys
 from pathlib import Path
 
 import rtoml
@@ -32,12 +33,94 @@ class DummyEntryPoint:
         self.name = name
         self._loader = loader
         self.value = value
+        self.load_count = 0
 
     def load(self):
+        self.load_count += 1
         return self._loader()
 
 
 class TestCli:
+    def test_module_app_remains_available_to_direct_consumers(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(cli_module, "entry_points", lambda group: [])
+
+        legacy_app = cli_module.__getattr__("app")
+        result = runner.invoke(legacy_app, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "file-server" in result.output
+
+    def test_requested_command_loads_only_its_entry_point(self, monkeypatch):
+        selected = DummyEntryPoint(
+            "selected",
+            lambda: _dummy_plugin("selected"),
+        )
+        unrelated = DummyEntryPoint(
+            "unrelated",
+            lambda: _dummy_plugin("unrelated"),
+        )
+        monkeypatch.setattr(
+            cli_module,
+            "entry_points",
+            lambda group: [selected, unrelated]
+            if group == "robo_orchard.cli"
+            else [],
+        )
+
+        result = runner.invoke(
+            cli_module.create_app(requested_command="selected"),
+            ["selected", "ping"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert result.output.strip() == "selected"
+        assert selected.load_count == 1
+        assert unrelated.load_count == 0
+
+    def test_main_loads_only_known_requested_command(self, monkeypatch):
+        entry_point = DummyEntryPoint("selected", lambda: _dummy_plugin(""))
+        requested_commands: list[str | None] = []
+        executed = []
+
+        def create_app(*, requested_command=None, **kwargs):
+            del kwargs
+            requested_commands.append(requested_command)
+            return lambda: executed.append(True)
+
+        monkeypatch.setattr(sys, "argv", ["robo-orchard", "selected"])
+        monkeypatch.setattr(
+            cli_module,
+            "entry_points",
+            lambda group: [entry_point]
+            if group == "robo_orchard.cli"
+            else [],
+        )
+        monkeypatch.setattr(cli_module, "create_app", create_app)
+
+        cli_module.main()
+
+        assert requested_commands == ["selected"]
+        assert executed == [True]
+
+    def test_main_uses_full_tree_for_unknown_command(self, monkeypatch):
+        requested_commands: list[str | None] = []
+
+        def create_app(*, requested_command=None, **kwargs):
+            del kwargs
+            requested_commands.append(requested_command)
+            return lambda: None
+
+        monkeypatch.setattr(sys, "argv", ["robo-orchard", "unknown"])
+        monkeypatch.setattr(cli_module, "entry_points", lambda group: [])
+        monkeypatch.setattr(cli_module, "create_app", create_app)
+
+        cli_module.main()
+
+        assert requested_commands == [None]
+
     def test_help_lists_builtin_file_server_without_entry_points(
         self, monkeypatch
     ):

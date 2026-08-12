@@ -40,6 +40,7 @@ rosbag2*
 # General
 
 ## tmp & debug
+.tmp/
 dummy/
 **/.agents/scratch/
 

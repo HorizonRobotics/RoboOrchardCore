@@ -31,6 +31,7 @@ class TestLoggerManager:
 
         manager = module.LoggerManager(handlers=[])
         assert len(manager.get_logger().handlers) == 0
+        assert manager.get_logger().propagate is True
 
     def test_add_default_handler_when_no_root_handlers(self, monkeypatch):
         module = importlib.reload(logging_utils)
@@ -45,3 +46,23 @@ class TestLoggerManager:
         assert isinstance(
             manager.get_logger().handlers[0], logging.StreamHandler
         )
+        assert manager.get_logger().propagate is False
+
+    def test_set_handlers_updates_output_ownership(self, monkeypatch):
+        """Handler changes should switch between manager and root output."""
+        module = importlib.reload(logging_utils)
+        monkeypatch.setattr(
+            logging.Logger,
+            "hasHandlers",
+            lambda _self: True,
+        )
+
+        manager = module.LoggerManager(handlers=[])
+        logger = manager.get_logger()
+        assert logger.propagate is True
+
+        manager.set_handlers([logging.NullHandler()])
+        assert logger.propagate is False
+
+        manager.set_handlers([])
+        assert logger.propagate is True

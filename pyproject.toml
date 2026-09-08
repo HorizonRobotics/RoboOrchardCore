@@ -7,17 +7,12 @@ authors = [{ name = "The RoboOrchard Team" }]
 dependencies = [
     "rtoml",
     "pyyaml",
-    "numpy",
-    "numpydantic>=1.8.1",
-    "deprecated",
-    "torch",
     "fsspec",
     "pydantic>=2.9,<3",
+    "pydantic-core",
     "pydantic-settings>=2.9.1",
     "ordered-set",
-    "gymnasium",
-    "pillow",
-    "opencv-python>=4",
+    "typing-extensions",
     "typer",
 ]
 license = "Apache-2.0"
@@ -29,12 +24,19 @@ classifiers = [
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-kinematic = ["pytorch_kinematics"]
-ipy_viz = ["ipywidgets", "ipycanvas", "ipyevents"]
+robotics = [
+    "numpy",
+    "numpydantic>=1.8.1",
+    "torch",
+    "pillow",
+    "opencv-python>=4",
+    "gymnasium",
+    "pytorch_kinematics",
+]
+kinematic = ["robo_orchard_core[robotics]"]
+ipy_viz = ["robo_orchard_core[robotics]", "ipywidgets", "ipycanvas", "ipyevents"]
 virtual_desktop = [
-    "ipywidgets",
-    "ipycanvas",
-    "ipyevents",
+    "robo_orchard_core[robotics,ipy_viz]",
     "pyautogui",
     "pyvirtualdisplay",
     "mss",
@@ -44,7 +46,8 @@ tools = [
     "aiofiles",
     "uvicorn",
 ]
-all = ["robo_orchard_core[kinematic,ipy_viz,virtual_desktop,tools]"]
+ray = ["robo_orchard_core[robotics]", "ray"]
+all = ["robo_orchard_core[robotics,tools,ray,ipy_viz,virtual_desktop]"]
 
 [project.urls]
 Homepage = "https://github.com/HorizonRobotics/RoboOrchardCore"

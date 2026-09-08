@@ -10,11 +10,20 @@ description: Load these instructions when creating, updating, or validating test
 - Prefer the smallest test that proves the target behavior.
 - Use real fixtures, datasets, models, and file paths when the test is intended to validate actual integration behavior.
 - Do not replace required real test inputs with fallback skip logic when the test is expected to prove correctness in the configured environment.
+- When a CLI, plugin, or package import is expected to work after
+  installation, test its installed entry surface rather than inferring that
+  behavior solely from source-tree paths or packaging metadata.
+- Run distribution build and install checks from temporary source and install
+  locations rather than the live checkout. Use offline or `--no-deps` modes
+  when appropriate, but do not silently skip the artifact proof.
 - When a test depends on an external binary, codec, or runtime capability that
   is not a documented repository-baseline requirement, probe that capability
   in the test and skip when unavailable instead of making the default test
   phase fail for environment reasons.
 - Use mocks or monkeypatch only when the test target is isolated assembly logic and real dependencies are not part of the behavior under test.
+- For import-lightweight tests that manipulate `sys.modules` or optional
+  dependency state, prefer a subprocess when Pydantic models, registries, or
+  other identity-sensitive globals make an in-process reset unreliable.
 - For process-backed or external-binary integrations, prefer one real
   integration path that proves the happy path against the actual dependency
   and separate narrow fake or monkeypatched tests for failure paths that are

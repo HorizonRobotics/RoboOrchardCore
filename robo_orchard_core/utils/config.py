@@ -24,13 +24,19 @@ import inspect
 import io
 import typing
 from copy import deepcopy
-from typing import Annotated, Any, Generic, Literal, Type, overload
+from typing import (
+    TYPE_CHECKING as _TYPE_CHECKING,
+    Annotated,
+    Any,
+    Generic,
+    Literal,
+    Type,
+    overload,
+)
 
 import fsspec
 import rtoml as toml
-import torch
 import yaml
-from numpydantic import NDArray
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -55,6 +61,12 @@ from robo_orchard_core.utils.logging import LoggerManager
 from robo_orchard_core.utils.patches import patch_class_method
 from robo_orchard_core.utils.registry import Registry
 
+if _TYPE_CHECKING:
+    from robo_orchard_core.utils._config_tensor_types import (
+        NumpyTensor,  # noqa: F401
+        TorchTensor,  # noqa: F401
+    )
+
 logger = LoggerManager().get_child(__name__)
 
 
@@ -70,6 +82,9 @@ TYPE_LIST = ParamSpec("TYPE_LIST")
 PYDANTIC_CONFIGCLASS = Registry("PYDANTIC_CONFIGCLASS")
 
 TOML_NULL = "null"
+
+
+# Pydantic compatibility
 
 
 def _pydantic_version_part(part: str) -> int:
@@ -150,6 +165,9 @@ if _TYPEVAR_DEFAULT_SCHEMA_PATCH_ENABLED:
             return schema
 
         return self.__old__unsubstituted_typevar_schema(typevar)
+
+
+# Callable serialization and field annotations
 
 
 def is_lambda_expression(name: str) -> bool:
@@ -409,7 +427,7 @@ def string_to_callable(name: str) -> Callable:
 
 
 _CallableSerializer = PlainSerializer(
-    lambda x: (callable_to_string(x) if x is not None else None),
+    lambda x: callable_to_string(x) if x is not None else None,
     return_type=str,
     # when_used="always",
     when_used="json",
@@ -443,31 +461,64 @@ SliceType = Annotated[
 ]
 
 
-TorchTensor = Annotated[
-    torch.Tensor,
-    PlainValidator(
-        lambda x: torch.tensor(x) if not isinstance(x, torch.Tensor) else x
-    ),
-    PlainSerializer(lambda x: x.tolist(), return_type=list, when_used="json"),
-]
+# Optional robotics aliases
 
 
-# use NDArray of numpydantic to implement TorchTensor
+_TENSOR_ALIAS_NAMES = frozenset({"TorchTensor", "NumpyTensor"})
+_TENSOR_OPTIONAL_MODULES = frozenset({"torch", "numpy", "numpydantic"})
 
-NumpyTensor = NDArray
+
+def __getattr__(name: str) -> Any:
+    """Lazily load Tensor config aliases only when a caller requests them."""
+    if name not in _TENSOR_ALIAS_NAMES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    try:
+        from robo_orchard_core.utils._config_tensor_types import (
+            NumpyTensor,
+            TorchTensor,
+        )
+    except ModuleNotFoundError as error:
+        module_name = (error.name or "").split(".", maxsplit=1)[0]
+        if module_name not in _TENSOR_OPTIONAL_MODULES:
+            raise
+        raise ModuleNotFoundError(
+            f"{name} requires the robotics runtime. Install "
+            "'robo_orchard_core[robotics]'.",
+            name=error.name,
+        ) from None
+
+    globals().update(
+        {
+            "TorchTensor": TorchTensor,
+            "NumpyTensor": NumpyTensor,
+        }
+    )
+    return globals()[name]
+
+
+# Base configuration model
 
 
 class Config(BaseModel):
-    """Base class for configuration classes."""
+    """Base model for RoboOrchard configuration objects.
+
+    Configurations reject undeclared public fields, preserve their concrete
+    type through ``__config_type__`` when requested, and serialize to JSON,
+    TOML, or YAML. Subclasses may keep private runtime-only attributes; those
+    attributes are not model fields and are not serialized.
+    """
 
     __exclude_config_type__: bool = False
-    """The flag to exclude the '__config_type__' key in the serialization."""
+    """Whether this config omits ``__config_type__`` during serialization."""
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         protected_namespaces=(),
         extra="forbid",
     )
+
+    # Runtime state and Pydantic hooks
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Allow only private runtime-only attributes after construction.
@@ -493,26 +544,12 @@ class Config(BaseModel):
     def wrapped_model_ser(
         self, handler: SerializerFunctionWrapHandler, info: SerializationInfo
     ):
-        """Serializes the configuration to a dictionary.
+        """Optionally add a concrete-type discriminator to Pydantic output.
 
-        This wrapper function is used when the configuration is serialized.
-        It adds the `__config_type__` key to the dictionary.
-
-        `__config_type__` is the string representation of the class type. It
-        is used to determine the class type when deserializing the JSON string
-        instead of using pydantic's default behavior.
-
-        If a configuration class does not need the `__config_type__` key, set
-        `__exclude_config_type__` to True in the configuration class.
-
-        For builtin types, the `__config_type__` key will not be added to the
-        dictionary.
-
-        The `context` argument in the `model_dump` method is used to
-        determine whether to include the `__config_type__` key in the
-        serialized dictionary. If context['exclude_config_type'] is True,
-        the `__config_type__` key will not be added to the dictionary.
-
+        The discriminator lets a typed field restore a subclass rather than
+        only its declared base type. It is omitted for builtins, for configs
+        opting out through ``__exclude_config_type__``, and when the caller
+        sets ``context['exclude_config_type']``.
         """
         if (
             (
@@ -536,6 +573,7 @@ class Config(BaseModel):
     def wrapped_model_val(
         cls, data: Any, handler: ValidatorFunctionWrapHandler
     ):
+        """Restore a discriminator-selected config class before validation."""
         if isinstance(data, str):
             data = from_json(data, allow_partial=True)
         if isinstance(data, dict):
@@ -551,25 +589,14 @@ class Config(BaseModel):
         return data
 
     def __post_init__(self):
-        """Hack to replace __post_init__ in configclass.
-
-        This hotfix is only needed for inheriting from both pydantic Config
-        and omni.isaac.lab.utils.configclass.
-        """
+        """Compatibility lifecycle hook for configclass-style subclasses."""
         pass
 
     def model_post_init(self, *args, **kwargs):
-        """Post init method for the model.
-
-        Perform additional initialization after __init__ and model_construct.
-        This is useful if you want to do some validation that requires the
-        entire model to be initialized.
-
-        To be consistent with configclass, this method is implemented by
-        calling the `__post_init__` method.
-
-        """
+        """Route Pydantic's post-init hook through ``__post_init__``."""
         self.__post_init__()
+
+    # In-memory and text serialization
 
     def to_dict(
         self,
@@ -580,15 +607,11 @@ class Config(BaseModel):
         include_config_type: bool = False,
         **kwargs,
     ) -> dict:
-        """Converts the configuration to a dictionary.
+        """Return the configuration as a Python or JSON-compatible mapping.
 
-        This method will call pydanitc's `model_dump` method to convert the
-        configuration to a dictionary. The `__config_type__` key will be added
-        to the dictionary if `include_config_type` is True.
-
-        Note:
-            This method is not designed for serialization. Use the
-            :py:meth:`to_str` method for serialization!
+        Set ``include_config_type`` when another config field must restore the
+        concrete subclass rather than its declared base type. Use ``to_str``
+        for JSON, TOML, or YAML persistence.
 
         Args:
             mode (Literal["python", "json"]): The mode of the output
@@ -603,9 +626,8 @@ class Config(BaseModel):
                 dictionary. Default is False.
             include_config_type (bool): Whether to include the
                 `__config_type__` key in the dictionary. If False, the
-                deserialization will use the class type defined in the class
-                annotation, not the acaual deserialized class type! This will
-                break the consistency of serialization and deserialization.
+                deserialization uses the class type declared by the field,
+                not the concrete serialized class.
                 Default is False.
 
         """
@@ -633,19 +655,12 @@ class Config(BaseModel):
         round_trip: bool = False,
         **kwargs,
     ) -> str:
-        """Converts the configuration to a string.
+        """Serialize this configuration as JSON, TOML, or YAML.
 
-        Different from the `to_dict` method, this method adds the
-        '__config_type__' key to the dictionary and converts the dictionary
-        to a string by default.
-
-        YAML output keeps ordinary strings plain, renders strings containing
-        only trailing line feeds with explicit double-quoted escapes, and
-        renders true multiline content with literal block scalars.
-
-        For config that does not need '__config_type__' key, set
-        `__exclude_config_type__` to True in the config class or
-        set `include_config_type` to False in the method call.
+        Unlike ``to_dict``, this method includes ``__config_type__`` by
+        default so a polymorphic configuration can be reconstructed. YAML
+        preserves ordinary strings, explicit trailing newlines, and true
+        multiline values distinctly.
 
         Args:
             format (str): The format of the output string. Can be 'json',
@@ -658,9 +673,8 @@ class Config(BaseModel):
                 dictionary. Default is False.
             include_config_type (bool): Whether to include the
                 `__config_type__` key in the string. If False, the
-                deserialization will use the class type defined in the class
-                annotation, not the actual deserialized class type! This will
-                break the consistency of serialization and deserialization.
+                deserialization uses the class type declared by the field,
+                not the concrete serialized class.
                 Default is True.
             round_trip (bool, optional): If True, the serialization will
                 preserve the original data types as much as possible. This is
@@ -712,6 +726,7 @@ class Config(BaseModel):
 
     @classmethod
     def from_dict(cls: Type[Self], data: dict, **kwargs) -> Self:
+        """Validate ``data`` as this concrete configuration class."""
         return cls.model_validate(data, **kwargs)
 
     @classmethod
@@ -721,17 +736,14 @@ class Config(BaseModel):
         format: Literal["json", "toml", "yaml"] = "json",
         **kwargs,
     ) -> Self:
-        """Creates a configuration object from a string.
-
-        If the input string is not in JSON format, it will be converted to a
-        JSON string before deserialization.
+        """Deserialize JSON, TOML, or YAML into this concrete config class.
 
         Args:
-            data (str): The input string data.
+            data (str): Serialized configuration data.
             format (str): The format of the input string. Can be 'json',
                 'yaml' or 'toml'. Default is 'json'.
             **kwargs: Additional keyword arguments to be passed to the
-                deserialization method :meth:`BaseModel.model_validate_json`.
+                deserialization method.
 
         """
         if format == "json":
@@ -745,11 +757,18 @@ class Config(BaseModel):
             json_str = to_json(dict_data).decode("utf-8")
             return cls.model_validate_json(json_str, **kwargs)
 
+    # Copying, comparison, and persistence
+
     def copy(self) -> Self:
         """Returns a copy of the configuration."""
         return self.model_copy()
 
     def replace(self, **kwargs) -> Self:
+        """Return a copy with declared fields replaced.
+
+        Unknown public field names fail eagerly instead of becoming untracked
+        runtime attributes.
+        """
         unknown_field_names = set(kwargs).difference(type(self).model_fields)
         if unknown_field_names:
             field_names_str = ", ".join(sorted(unknown_field_names))
@@ -760,30 +779,24 @@ class Config(BaseModel):
         return self.model_copy(update=kwargs)
 
     def content_equal(self, other: Self) -> bool:
-        """Check if the content of the configuration is equal to another.
-
-        This method relies on the `to_json` method to convert the
-        configuration to json dictionaries and compare them.
-        """
+        """Compare configurations by serialized JSON content."""
         self_data = self.to_str(format="json")
         other_data = other.to_str(format="json")
 
         return self_data == other_data
 
     def __eq__(self, other: Any) -> bool:
-        """Check if the configuration is equal to another object.
-
-        This method checks if the other object is an instance of the same
-        class and if the content of the configuration is equal to the other
-        configuration.
-        """
+        """Compare same-class configurations by serialized content."""
         if not isinstance(other, self.__class__):
             return False
         return self.content_equal(other)
 
     def save(self, path: str, indent: int = 2, **kwargs):
-        """Saves the configuration to a file."""
-        # get file extension
+        """Serialize to a JSON, TOML, or YAML path through fsspec.
+
+        The filename extension selects the format; unsupported extensions are
+        rejected before a file is opened.
+        """
         ext = path.split(".")[-1]
         if ext in ["toml", "json", "yaml"]:
             data_str = self.to_str(format=ext, indent=indent, **kwargs)  # type: ignore
@@ -839,28 +852,36 @@ class Config(BaseModel):
         return load_from(path, ensure_type=cls)
 
 
+# Configured constructors
+
+
+ConfigT = TypeVar("ConfigT", bound=Config)
+
+
+class ClassInitFromConfigMixin:
+    """Convenience marker for classes initialized with their full config.
+
+    ``ClassConfig`` uses the ``InitFromConfig`` attribute as its dispatch
+    predicate. This mixin declares that attribute as ``True`` for targets
+    that receive their configuration object as the first constructor argument.
+    """
+
+    InitFromConfig: bool = True
+
+
 class ClassConfig(Config, Generic[T_co]):
-    """Configuration for a class type.
+    """Store constructor data and build the configured class.
 
-    This configuration class is used to store the initialization data
-    for a class type.
-
+    Targets receive field values as keyword arguments by default. Targets
+    with ``InitFromConfig=True`` receive this config object first, followed by
+    caller-provided positional and non-field keyword arguments.
+    ``ClassInitFromConfigMixin`` is the convenience marker for that contract.
     """
 
     class_type: ClassType_co[T_co]
 
     def __call__(self, *args, **kwargs) -> T_co:
-        """Creates an instance of the class type with the configuration data.
-
-        There are two ways to create an instance of the class type:
-        1. By passing the keyword arguments from the configuration data to
-            the class constructor
-        2. By passing the configuration object to the class constructor
-
-        If `class_type` is has the `InitFromConfig` attribute set to True,
-        call `create_instance_by_cfg` method. Otherwise, call
-        `create_instance_by_kwargs` method.
-        """
+        """Build ``class_type`` using the target's declared init convention."""
 
         if getattr(self.class_type, "InitFromConfig", False):
             return self.create_instance_by_cfg(*args, **kwargs)
@@ -868,22 +889,13 @@ class ClassConfig(Config, Generic[T_co]):
             return self.create_instance_by_kwargs(*args, **kwargs)
 
     def create_instance_by_kwargs(self, *args, **kwargs) -> T_co:
-        """Creates an instance of the class type.
-
-        This method is used to create an instance of the class type by
-        passing the keyword arguments from the configuration data to the
-        class constructor.
-
-        The returned instance will be initialized with the configuration data.
+        """Build the target from config fields plus caller overrides.
 
         Args:
             *args: Additional positional arguments to be passed to the class
                 constructor.
             **kwargs: Additional keyword arguments to be passed to the class
                 constructor. These will override the configuration data.
-
-        Returns:
-            T: An instance of the class type.
 
         """
         dict_data = self.to_dict()
@@ -895,21 +907,13 @@ class ClassConfig(Config, Generic[T_co]):
         return self.class_type(*args, **dict_data)
 
     def create_instance_by_cfg(self, *args, **kwargs) -> T_co:
-        """Creates an instance of the class type.
-
-        This method is used to create an instance of the class type by
-        passing the configuration object, not the keyword arguments.
-        Any positional arguments will be passed to the class constructor after
-        the configuration object.
+        """Build the target with a replaced config object as its first arg.
 
         Args:
             *args: Additional positional arguments to be passed to the class
                 constructor after the configuration object.
             **kwargs: Additional keyword arguments to be passed to the class
                 constructor. These will override the configuration data.
-
-        Returns:
-            T: An instance of the class type.
 
         """
         to_replace_kwargs = {}
@@ -925,17 +929,12 @@ class ClassConfig(Config, Generic[T_co]):
 
 
 class CallableConfig(Config, Generic[T_co]):
-    """Configuration for a callable type.
-
-    This configuration class is used to store parameters for a callable type.
-
-
-    """
+    """Store keyword arguments and invoke the configured callable."""
 
     func: CallableType[..., T_co]
 
     def __call__(self, **kwargs) -> T_co:
-        """Calls the function with the configuration data.
+        """Invoke ``func`` with config fields and caller keyword overrides.
 
         Args:
             **kwargs: Additional keyword arguments to be passed to the
@@ -950,7 +949,7 @@ class CallableConfig(Config, Generic[T_co]):
         return self.func(**dict_data)
 
 
-ConfigT = TypeVar("ConfigT", bound=Config)
+# Config loading
 
 
 def load_config_class(
@@ -1044,10 +1043,7 @@ def load_from(path: str, ensure_type: type[ConfigT] | None = None):
     return ret
 
 
-class ClassInitFromConfigMixin:
-    """Mixin class for the configuration class that initializes from config."""
-
-    InitFromConfig: bool = True
+# Config-instance annotations and YAML serialization
 
 
 def add_cfg_type_ser_wrap(v: Any, nxt: SerializerFunctionWrapHandler) -> Any:
@@ -1171,3 +1167,12 @@ _ConfigYamlDumper.add_representer(
     str,
     _represent_config_yaml_string,
 )
+
+
+# Preserve the historical wildcard-import surface while ensuring the two
+# optional aliases are resolved through this module's lazy attribute hook.
+__all__ = [
+    *[name for name in globals() if not name.startswith("_")],
+    "TorchTensor",
+    "NumpyTensor",
+]

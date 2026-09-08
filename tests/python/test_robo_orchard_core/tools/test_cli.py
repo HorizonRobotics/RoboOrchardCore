@@ -65,9 +65,9 @@ class TestCli:
         monkeypatch.setattr(
             cli_module,
             "entry_points",
-            lambda group: [selected, unrelated]
-            if group == "robo_orchard.cli"
-            else [],
+            lambda group: (
+                [selected, unrelated] if group == "robo_orchard.cli" else []
+            ),
         )
 
         result = runner.invoke(
@@ -94,9 +94,7 @@ class TestCli:
         monkeypatch.setattr(
             cli_module,
             "entry_points",
-            lambda group: [entry_point]
-            if group == "robo_orchard.cli"
-            else [],
+            lambda group: [entry_point] if group == "robo_orchard.cli" else [],
         )
         monkeypatch.setattr(cli_module, "create_app", create_app)
 
@@ -135,11 +133,11 @@ class TestCli:
         monkeypatch.setattr(
             cli_module,
             "entry_points",
-            lambda group: [
-                DummyEntryPoint("external", lambda: _dummy_plugin("served"))
-            ]
-            if group == "robo_orchard.cli"
-            else [],
+            lambda group: (
+                [DummyEntryPoint("external", lambda: _dummy_plugin("served"))]
+                if group == "robo_orchard.cli"
+                else []
+            ),
         )
 
         result = runner.invoke(cli_module.create_app(), ["--help"])
@@ -168,11 +166,15 @@ class TestCli:
         monkeypatch.setattr(
             cli_module,
             "entry_points",
-            lambda group: [
-                DummyEntryPoint("file-server", lambda: _dummy_plugin("other"))
-            ]
-            if group == "robo_orchard.cli"
-            else [],
+            lambda group: (
+                [
+                    DummyEntryPoint(
+                        "file-server", lambda: _dummy_plugin("other")
+                    )
+                ]
+                if group == "robo_orchard.cli"
+                else []
+            ),
         )
 
         app = cli_module.create_app()
@@ -204,11 +206,11 @@ class TestCli:
         monkeypatch.setattr(
             cli_module,
             "entry_points",
-            lambda group: [
-                DummyEntryPoint("file-server", fail_if_loaded, value=target)
-            ]
-            if group == "robo_orchard.cli"
-            else [],
+            lambda group: (
+                [DummyEntryPoint("file-server", fail_if_loaded, value=target)]
+                if group == "robo_orchard.cli"
+                else []
+            ),
         )
 
         app = cli_module.create_app()
@@ -257,9 +259,7 @@ class TestCli:
                     DummyEntryPoint("shared", lambda: _dummy_plugin("new")),
                 ],
                 "robo_orchard.plugins": [
-                    DummyEntryPoint(
-                        "shared", lambda: _dummy_plugin("legacy")
-                    ),
+                    DummyEntryPoint("shared", lambda: _dummy_plugin("legacy")),
                     DummyEntryPoint(
                         "legacy-only",
                         lambda: _dummy_plugin("legacy-only"),
@@ -291,12 +291,14 @@ class TestCli:
         monkeypatch.setattr(
             cli_module,
             "entry_points",
-            lambda group: [
-                DummyEntryPoint("broken", broken_loader),
-                DummyEntryPoint("working", lambda: _dummy_plugin("ok")),
-            ]
-            if group == "robo_orchard.cli"
-            else [],
+            lambda group: (
+                [
+                    DummyEntryPoint("broken", broken_loader),
+                    DummyEntryPoint("working", lambda: _dummy_plugin("ok")),
+                ]
+                if group == "robo_orchard.cli"
+                else []
+            ),
         )
 
         app = cli_module.create_app()
@@ -308,7 +310,8 @@ class TestCli:
         assert result.output.strip() == "ok"
         assert "Failed to load CLI extension 'broken': boom" in captured.err
 
-    def test_file_server_web_stack_stays_in_tools_extra(self):
+    def test_file_server_runtime_stays_in_tools_extra(self):
+        """File-server runtime dependencies remain optional and complete."""
         pyproject_path = Path(__file__).parents[4] / "pyproject.toml"
         pyproject = rtoml.load(pyproject_path)
         dependencies = set(pyproject["project"]["dependencies"])
@@ -317,10 +320,18 @@ class TestCli:
         )
 
         assert "typer" in dependencies
+        assert "pydantic-settings>=2.9.1" in dependencies
         assert "fastapi" not in dependencies
         assert "aiofiles" not in dependencies
         assert "uvicorn" not in dependencies
-        assert {"fastapi", "aiofiles", "uvicorn"} <= tools_extra
+        assert {
+            "fastapi",
+            "aiofiles",
+            "uvicorn",
+        } <= tools_extra
+        assert set(
+            cli_module.BUILTIN_CLI_EXTENSIONS["file-server"].required_modules
+        ) == {"fastapi", "aiofiles", "uvicorn", "pydantic_settings"}
 
 
 def _dummy_plugin(message: str) -> typer.Typer:

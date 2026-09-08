@@ -14,8 +14,22 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-from .version import (  # type: ignore
-    __full_version__,
-    __git_hash__,
-    __version__,
-)
+from pathlib import Path
+
+try:
+    from .version import (  # type: ignore
+        __full_version__,
+        __git_hash__,
+        __version__,
+    )
+except ModuleNotFoundError as error:
+    if error.name != f"{__name__}.version":
+        raise
+
+    __version__ = (
+        (Path(__file__).resolve().parent.parent / "VERSION")
+        .read_text()
+        .strip()
+    )
+    __full_version__ = f"{__version__}.dev"
+    __git_hash__ = "unknown"

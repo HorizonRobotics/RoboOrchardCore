@@ -96,7 +96,12 @@ BUILTIN_CLI_EXTENSIONS = {
     "file-server": BuiltinCliExtension(
         target="robo_orchard_core.tools.simple_file_server:cli_app",
         help="Simple HTTP file server.",
-        required_modules=("fastapi", "aiofiles", "uvicorn"),
+        required_modules=(
+            "fastapi",
+            "aiofiles",
+            "uvicorn",
+            "pydantic_settings",
+        ),
         requirement="robo_orchard_core[tools]",
     ),
 }
@@ -165,10 +170,7 @@ def load_cli_extensions(
     """
     loaded_specs: dict[str, str] = {}
     for builtin_name, builtin_extension in BUILTIN_CLI_EXTENSIONS.items():
-        if (
-            requested_command is not None
-            and builtin_name != requested_command
-        ):
+        if requested_command is not None and builtin_name != requested_command:
             continue
         missing_modules = _missing_modules(builtin_extension.required_modules)
         if missing_modules:

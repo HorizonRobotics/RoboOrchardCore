@@ -28,19 +28,26 @@ DEFAULT_LOG_FORMAT = (
 
 
 def wrap_log_fmt_with_rank(format: str) -> str:
-    """Wrap the log format with the rank of the process."""
-    from robo_orchard_core.utils.distributed import get_dist_info
+    """Expand ``%rank`` when PyTorch distributed support is installed."""
+    if "%rank" not in format:
+        return format
 
-    if "%rank" in format:
-        dist_info = get_dist_info()
-        if dist_info.world_size > 1:
-            format = format.replace(
-                "%rank",
-                "Rank[{}/{}]".format(dist_info.rank, dist_info.world_size),
-            )
-        else:
-            # remove %rank if not in distributed mode
-            format = format.replace("%rank ", "")
+    try:
+        from robo_orchard_core.utils.distributed import get_dist_info
+    except ModuleNotFoundError as error:
+        if (error.name or "").split(".", maxsplit=1)[0] != "torch":
+            raise
+        return format.replace("%rank ", "")
+
+    dist_info = get_dist_info()
+    if dist_info.world_size > 1:
+        format = format.replace(
+            "%rank",
+            "Rank[{}/{}]".format(dist_info.rank, dist_info.world_size),
+        )
+    else:
+        # remove %rank if not in distributed mode
+        format = format.replace("%rank ", "")
     return format
 
 

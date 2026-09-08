@@ -56,6 +56,11 @@ description: Load these instructions when planning complex repository work, vali
   current conversation. Report candidate lessons with recommendations first,
   wait for the user's decision before editing durable guidance or memory, and
   record `none` when there is nothing worth preserving.
+- Before that same commit or handoff, inventory `.agents/scratch/` entries
+  created or materially used by the current task. Report `none`, or one
+  disposition per candidate: `keep` with its blocker, `retirement pending`,
+  or `retired`. The inventory is non-destructive: deletion still requires
+  completion evidence, durable distillation, and explicit user confirmation.
 - Treat a design as ready for implementation only after the ownership
   boundaries, user-facing contract, compatibility posture, failure behavior,
   and validation scope are clear enough to guide review.
@@ -78,6 +83,10 @@ description: Load these instructions when planning complex repository work, vali
 - Choose the smallest validation that matches the changed files and impact.
 - Add or update tests when behavior changes.
 - Broaden validation for shared behavior, public APIs, packaging, or config changes.
+- When a package dependency, lower bound, or optional extra changes, trace the
+  selected dependency closure and cover it with static metadata assertions or
+  a focused clean-environment install smoke; do not validate only against an
+  already feature-complete development environment.
 - When deleting a package, command, service, example, or other published
   runtime surface, validate in the same turn that CI or install flows,
   surviving runtime entrypoints, examples, tests or resources, and packaging

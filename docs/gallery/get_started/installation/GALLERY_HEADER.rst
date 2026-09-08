@@ -9,11 +9,20 @@ tested.
 From PyPI (Recommended)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**RoboOrchardCore** packages are available on PyPI. To install the **RoboOrchardCore** packages from PyPI, you can use the following command:
+**RoboOrchardCore** packages are available on PyPI. The base install is the
+slim configuration and CLI profile. Install the ``robotics`` extra when you
+need tensor datatypes, environments, cameras, controllers, or kinematics; use
+``all`` for the complete feature set.
 
 .. code-block:: bash
 
     pip install robo_orchard_core
+
+    # Robotics runtime and tensor-backed datatypes.
+    pip install "robo_orchard_core[robotics]"
+
+    # All official extras.
+    pip install "robo_orchard_core[all]"
 
 
 From Source

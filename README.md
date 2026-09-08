@@ -32,7 +32,7 @@ If you are new to RoboOrchardCore, use this as the default reading path:
 | Build typed runtime configs and factories | `robo_orchard_core.utils.config.Config` and `ClassConfig` | They keep construction declarative, serializable, and validation-friendly. |
 | Normalize robot state, transforms, cameras, or joints | `robo_orchard_core.datatypes` | The package ships batch-first containers that keep tensor shape semantics explicit. |
 | Assemble manager-driven environment loops | `robo_orchard_core.envs.TermManagerBasedEnv` | It wires action, observation, and event managers into one reusable control loop. |
-| Run policies out of process with Ray | `robo_orchard_core.policy.RemotePolicy` | It wraps policy execution behind a typed remote boundary instead of ad-hoc actor code. |
+| Run policies out of process with Ray | `robo_orchard_core.policy.remote.RemotePolicy` | It wraps policy execution behind a typed remote boundary instead of ad-hoc actor code. |
 | Ship operational commands or services | `robo_orchard_core.tools.cli` | The built-in Typer CLI exposes commands today and can load plugins through entry points. |
 
 ## Why Teams Use It
@@ -45,8 +45,9 @@ If you are new to RoboOrchardCore, use this as the default reading path:
   across simulation and deployment code.
 - **Runtime boundaries stay clean**: environments, policies, controllers, and
   remote wrappers are separated from notebook, CLI, and device adapters.
-- **Installation stays modular**: install only the extras you need for
-  kinematics, notebook visualization, virtual desktop workflows, or tools.
+- **Installation stays modular**: the default install keeps configuration and
+  CLI support light; install robotics, remoting, notebook, desktop, or tools
+  extras only when those runtimes are needed.
 
 ## Package Surface
 
@@ -55,7 +56,7 @@ If you are new to RoboOrchardCore, use this as the default reading path:
 | Configuration | Typed configs, class factories, and serialization helpers | `utils.config.Config`, `utils.config.ClassConfig` |
 | Datatypes | Shared batched containers for geometry, cameras, joints, and frame graphs | `datatypes.BatchTransform3D`, `BatchFrameTransform`, `BatchCameraData`, `BatchJointsState` |
 | Environments | Manager-driven action, observation, and event orchestration | `envs.TermManagerBasedEnv`, `envs.managers` |
-| Policies and remoting | Local policy contracts plus Ray-backed remote execution | `policy.base`, `policy.RemotePolicy` |
+| Policies and remoting | Local policy contracts plus Ray-backed remote execution | `policy.base`, `policy.remote.RemotePolicy` |
 | Control and kinematics | Robot control primitives and kinematics helpers | `controllers`, `kinematics` |
 | Tools and visualization | CLI commands, service helpers, notebook-centric visualization | `tools.cli`, `viz.jupyter`, `devices` |
 
@@ -73,7 +74,7 @@ releases, prefer installing the package directly from PyPI.
 | Use case | Command | When to use |
 | --- | --- | --- |
 | Official released package | `pip install robo_orchard_core` | Choose this when you want the latest published release without cloning the repository. |
-| Base package from source | `pip install .` | Choose this when you only need the core package without optional extras. |
+| Base package from source | `pip install .` | Choose this for configuration helpers and the root CLI without robotics runtimes. |
 | Full feature set | `make install` or `pip install ".[all]"` | Choose this when you want the default source install path with the full extra set enabled. |
 | Editable development setup | `make install-editable` | Choose this when you plan to modify the package locally and want an editable install. |
 | Development dependencies | `make dev-env` | After either install path above, run this when you need lint, test, and docs tooling plus pre-commit hooks. |
@@ -82,10 +83,13 @@ Selected extras are also available for narrower setups:
 
 | Extra | Installs support for... | Use it when... |
 | --- | --- | --- |
-| `tools` | Typer, FastAPI, aiofiles, and uvicorn-backed tooling | You need the bundled CLI or service-style helpers. |
-| `kinematic` | `pytorch_kinematics` integration | You need chain or kinematics-oriented functionality. |
-| `ipy_viz` | Notebook visualization widgets and canvas stack | You want interactive Jupyter visualization. |
-| `virtual_desktop` | Notebook widgets plus desktop automation dependencies | You need remote desktop or GUI-oriented notebook workflows. |
+| `robotics` | NumPy, PyTorch, Pillow, OpenCV, Gymnasium, and `pytorch_kinematics` | You need tensor datatypes, environments, controllers, cameras, or kinematics. |
+| `kinematic` | Compatibility alias for `robotics` | Keep existing kinematics-oriented installations working. |
+| `tools` | FastAPI, aiofiles, and uvicorn-backed commands | You need the bundled file-server command or service-style helpers. |
+| `ray` | Ray plus the robotics runtime | You need remote environment or policy execution. |
+| `ipy_viz` | Robotics runtime plus notebook visualization widgets and canvas stack | You want interactive Jupyter visualization. |
+| `virtual_desktop` | Robotics and notebook runtimes plus desktop automation dependencies | You need remote desktop or GUI-oriented notebook workflows. |
+| `all` | Every official extra | You want the complete Core feature set. |
 
 After installation, use the documentation paths that match your goal:
 
@@ -96,8 +100,12 @@ After installation, use the documentation paths that match your goal:
 ## Scope And Constraints
 
 - The documented default environment is Ubuntu 22.04 with Python 3.10.
-- Several capabilities live behind optional extras such as `kinematic`, `tools`, `ipy_viz`, and `virtual_desktop`.
-- Distributed execution and some higher-level workflows assume Ray is installed and available.
+- Tensor datatypes, environments, controllers, cameras, and kinematics require
+  the `robotics` extra; `kinematic` remains its compatibility alias.
+- Several capabilities live behind optional extras such as `tools`, `ray`,
+  `ipy_viz`, and `virtual_desktop`.
+- Distributed execution and some higher-level workflows require the `ray`
+  extra.
 - If you only need a few standalone math helpers or a one-off CLI, this package may be broader than necessary; it is most useful when you want one shared runtime model across config, data contracts, environments, policies, and tools.
 
 ## Typical Use Cases

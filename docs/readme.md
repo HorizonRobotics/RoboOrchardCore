@@ -11,6 +11,12 @@ package positioning, and source navigation, see the
 > the repository README when you want install context, source layout, or
 > contribution entry points.
 
+The default installation is the slim configuration and CLI profile. Install
+``robo_orchard_core[robotics]`` for tensor datatypes, environments, cameras,
+controllers, or kinematics, and use ``robo_orchard_core[all]`` for the complete
+feature set. The :doc:`installation guide <build/gallery/get_started/installation/index>`
+shows the available paths.
+
 ## Navigate By Task
 
 | Goal | Start here | What you will get |
@@ -79,7 +85,7 @@ Think about RoboOrchardCore in four parts:
 | `utils.config.Config` | You need typed runtime configs with predictable serialization. |
 | `datatypes.BatchTransform3D` and related datatypes | You need reusable geometry, camera, or joint-state containers. |
 | `envs.TermManagerBasedEnv` | You want a manager-driven environment loop with explicit event flow. |
-| `policy.RemotePolicy` | You need Ray-backed remote policy execution behind a typed interface. |
+| `policy.remote.RemotePolicy` | You need Ray-backed remote policy execution behind a typed interface. |
 | `tools.cli` | You want CLI and service-style entry points from the same package. |
 
 ## Documentation Map

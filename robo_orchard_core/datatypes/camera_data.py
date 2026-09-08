@@ -47,7 +47,7 @@ from robo_orchard_core.utils.math.camera import (
 from robo_orchard_core.utils.math.transform import Transform2D_M, Transform3D_M
 from robo_orchard_core.utils.torch_utils import Device
 
-__all___ = [
+__all__ = [
     "EncoderType",
     "DecoderType",
     "ImageChannelLayout",
@@ -350,8 +350,7 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         for pose in [other.pose for other in others]:
             if [pose, self.pose].count(None) == 1:
                 raise ValueError(
-                    "All BatchCameraInfo objects must have the same pose "
-                    "type."
+                    "All BatchCameraInfo objects must have the same pose type."
                 )
 
         def get_batch_size(info: BatchCameraInfo) -> int:
@@ -374,9 +373,11 @@ class BatchCameraInfo(DataClass, TensorToMixin):
                 ref_tensor = torch.tensor([], dtype=torch.float32)
 
             batch_size = get_batch_size(info)
-            return torch.eye(
-                3, dtype=ref_tensor.dtype, device=ref_tensor.device
-            ).unsqueeze(0).repeat(batch_size, 1, 1)
+            return (
+                torch.eye(3, dtype=ref_tensor.dtype, device=ref_tensor.device)
+                .unsqueeze(0)
+                .repeat(batch_size, 1, 1)
+            )
 
         intrinsic_matrices = (
             torch.cat(
@@ -807,9 +808,7 @@ class BatchImageData(DataClass):
             )
 
         layout = (
-            self.channel_layout
-            if channel_layout is None
-            else channel_layout
+            self.channel_layout if channel_layout is None else channel_layout
         )
         if layout != ImageChannelLayout.HWC:
             raise NotImplementedError(
@@ -851,16 +850,13 @@ class BatchImageData(DataClass):
         """
         sensor_data = self.sensor_data
         layout = (
-            self.channel_layout
-            if channel_layout is None
-            else channel_layout
+            self.channel_layout if channel_layout is None else channel_layout
         )
         if layout == ImageChannelLayout.CHW:
             sensor_data = sensor_data.permute(0, 2, 3, 1)  # Convert to HWC
         elif layout != ImageChannelLayout.HWC:
             raise NotImplementedError(
-                f"Unsupported channel layout: {layout}. "
-                "Expected HWC or CHW."
+                f"Unsupported channel layout: {layout}. Expected HWC or CHW."
             )
         mode = self.pix_fmt
         sensor_data = sensor_data.numpy(force=False)
@@ -1452,8 +1448,7 @@ def _validate_codec_options(
         )
     if png_compression is not None and not 0 <= png_compression <= 9:
         raise ValueError(
-            "png_compression must be in [0, 9], "
-            f"got {png_compression}."
+            f"png_compression must be in [0, 9], got {png_compression}."
         )
     if format == "png" and jpeg_quality is not None:
         raise ValueError("jpeg_quality is only supported for JPEG output.")
@@ -1615,8 +1610,7 @@ def _default_encoder(
             img.save(buf, format=pil_format, **format_kwargs)
         except Exception as exc:
             raise ValueError(
-                f"frame={frame_index}; format={format}; "
-                "failed to encode image"
+                f"frame={frame_index}; format={format}; failed to encode image"
             ) from exc
         compressed_data.append(buf.getvalue())
     return compressed_data

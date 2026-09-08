@@ -17,6 +17,20 @@ description: Load these instructions when creating, editing, or reorganizing AGE
   repository, preserve this repository's independent runtime model. Borrow
   only the applicable stable rules and localize paths, commands, and scope.
 
+## Cross-Repository Sync
+
+- Treat a containing workspace's shared `.agents/` assets as a maintenance
+  baseline only when a stable rule is intentionally shared with this
+  repository. They are never runtime fallback guidance for Core files.
+- When syncing a stable rule from another repository, keep the Core wording
+  self-contained and repository-accurate; do not copy parent-only routing,
+  ownership, internal-service, or installation instructions.
+- If an equivalent Core-local rule already covers the stable behavior, record
+  a no-op sync instead of creating text-only churn.
+- Report each cross-repository sync outcome as `synced`, `no-op sync`, `not
+  applicable`, or `intentionally not synced`, including the reason for any
+  unchanged matching surface.
+
 ## AGENTS.md Responsibilities
 
 - Use `AGENTS.md` for scope, precedence, routing, and discovery entrypoints.
@@ -124,6 +138,9 @@ description: Load these instructions when creating, editing, or reorganizing AGE
   residues, confirm inventory classification still matches asset type if this
   repository uses one, and check that new skill names do not collide with
   other visible skill surfaces.
+- When a stable rule is synchronized from another repository, verify that the
+  Core-local text remains complete when the containing workspace guidance is
+  ignored.
 - Verify that every referenced file path exists and that every listed local
   tree actually exists.
 - Check that `Quick Routing`, `Read First`, and `Repository Notes` all

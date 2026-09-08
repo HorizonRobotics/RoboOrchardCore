@@ -27,8 +27,12 @@ description: Load these instructions when working with git history, commit messa
   `git diff --cached --name-status`. Treat the index as concurrent shared
   state in shared-worktree workflows, and repeat this check immediately before
   the commit. Unstage only paths that the current workflow staged by mistake;
-  preserve pre-existing or concurrently staged work and commit the intended
-  paths with `git commit --only ... -- <paths>`.
+  preserve pre-existing or concurrently staged work. Use
+  `git commit --only ... -- <paths>` only when each target path has no excluded
+  hunks in either `HEAD → index` or `index → worktree`. If a target path mixes
+  approved and excluded changes, use an isolated index or worktree that
+  contains only the approved content; do not mutate the shared index to make
+  the commit.
 - Do not force-add ignored scratch files or temporary design notes such as
   `.agents/scratch/**` unless the user explicitly asks for a versioned
   snapshot or the scratch file is an agreed task deliverable. If the content
@@ -83,6 +87,11 @@ description: Load these instructions when working with git history, commit messa
   pushing, especially after creating a narrow cleanup commit on a dirty
   long-lived branch.
 - After merge, remove the remote source branch, refresh the local target branch, and then delete the local source branch when safe.
+- When an explicitly requested successor development branch replaces a merged
+  source branch, create it from the refreshed remote target and publish it.
+  If another repository later records this repository as a submodule, it must
+  pin the published child commit rather than treating the branch name as the
+  recorded reference.
 - Before deleting an archive, backup, or pre-reset local branch, compare its content against the branch you plan to keep using `git diff`, tree equality, or equivalent content-level checks; do not rely only on `git cherry` or ancestry.
 - After a squash merge, do not use commit ancestry alone to decide whether a
   source branch is covered by the target. Compare tree content or scoped diffs

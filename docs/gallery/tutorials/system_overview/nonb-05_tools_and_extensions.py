@@ -61,7 +61,7 @@
 #        -> built-in commands and robo_orchard.cli entry points
 #          -> package-owned Typer extension app
 #            -> Typer command groups and leaf commands
-#              -> optional pydantic-settings leaf model
+#              -> pydantic-settings leaf model
 #                -> command_impl()
 #
 # This split is deliberate. Typer is a good fit for command trees, command
